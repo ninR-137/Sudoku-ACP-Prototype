@@ -4,12 +4,11 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -21,6 +20,7 @@ import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -31,32 +31,25 @@ import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
+import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
 import java.io.File;
-import java.util.Arrays;
-
-import org.opencv.core.Size;
-
-import org.opencv.core.Mat;
-import org.opencv.core.Size;
-import org.opencv.imgcodecs.Imgcodecs;
-import org.opencv.imgproc.Imgproc;
-import org.opencv.android.Utils;
 
 public class MainActivity extends AppCompatActivity {
 
     private ImageView ivSudokuPreview;
     private TextView tvSudokuStatus;
+    private ImageButton btnEditImage;
 
     private Button btnProcess;
-    private int detectedGridSize = 0;
-    private String lastCapturedImagePath = null;
+    private int detectedGridSize = 9;
 
-    private Mat originalWarpedMat; // The raw grayscale image
-    private SeekBar sbManualThreshold;
-    private TextView tvManualThresholdLabel;
+    private Mat originalWarpedMat; 
+    private SeekBar sbMedianBlurSlider, sbMorphologySlider;
+    private SwitchCompat swMedianBlurToggle, swMorphologyToggle;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,36 +66,61 @@ public class MainActivity extends AppCompatActivity {
             Log.i("OpenCV", "OpenCV loaded successfully");
         }
 
-
         ivSudokuPreview = findViewById(R.id.ivSudokuPreview);
         tvSudokuStatus = findViewById(R.id.tvSudokuStatus);
+        btnEditImage = findViewById(R.id.btnEditImage);
         Button btnCamera = findViewById(R.id.btnCamera);
         Button btnGallery = findViewById(R.id.btnGallery);
+        Button btnRotateLeft = findViewById(R.id.btnRotateLeft);
+        Button btnRotateRight = findViewById(R.id.btnRotateRight);
 
-        sbManualThreshold = findViewById(R.id.sbManualThreshold);
-        tvManualThresholdLabel = findViewById(R.id.tvManualThresholdLabel);
+        swMedianBlurToggle = findViewById(R.id.swMedianBlur);
+        sbMedianBlurSlider = findViewById(R.id.sbMedianBlur);
 
-        sbManualThreshold.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        swMorphologyToggle = findViewById(R.id.swMorphology);
+        sbMorphologySlider = findViewById(R.id.sbMorphology);
+
+        SeekBar.OnSeekBarChangeListener updateListener = new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                updateImageThreshold(progress);
+                updateImageThreshold();
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        };
+
+        sbMedianBlurSlider.setOnSeekBarChangeListener(updateListener);
+        sbMorphologySlider.setOnSeekBarChangeListener(updateListener);
+
+        swMedianBlurToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sbMedianBlurSlider.setEnabled(isChecked);
+            updateImageThreshold();
         });
 
-        // Camera Button: Check permissions first, then start CameraActivity
+        swMorphologyToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sbMorphologySlider.setEnabled(isChecked);
+            updateImageThreshold();
+        });
+
+        btnRotateLeft.setOnClickListener(v -> rotateImage(false));
+        btnRotateRight.setOnClickListener(v -> rotateImage(true));
+
+        btnEditImage.setOnClickListener(v -> {
+            File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
+            Intent intent = new Intent(MainActivity.this, EditImageActivity.class);
+            intent.putExtra("image_path", file.getAbsolutePath());
+            editResultLauncher.launch(intent);
+        });
+
         btnCamera.setOnClickListener(v -> {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 Intent intent = new Intent(MainActivity.this, CameraActivity.class);
-                // USE THE LAUNCHER instead of startActivity
                 cameraResultLauncher.launch(intent);
             } else {
                 checkCameraPermission();
             }
         });
 
-        // Gallery Button: Launch the modern Photo Picker
         btnGallery.setOnClickListener(v -> {
             pickMedia.launch(new PickVisualMediaRequest.Builder()
                     .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
@@ -113,66 +131,43 @@ public class MainActivity extends AppCompatActivity {
         btnProcess.setOnClickListener(v -> {
             Intent intent = new Intent(MainActivity.this, SolverActivity.class);
             intent.putExtra("grid_size", detectedGridSize);
-            intent.putExtra("image_path", lastCapturedImagePath);
+            
+            File processedFile = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
+            intent.putExtra("image_path", processedFile.getAbsolutePath());
             startActivity(intent);
         });
 
         checkCameraPermission();
-
     }
 
-    private final ActivityResultLauncher<String> requestPermissionLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-                if (isGranted) {
-                    Log.i("Permission", "Camera permission granted");
-                } else {
-                    Toast.makeText(this, "Camera permission is required to scan Sudoku", Toast.LENGTH_LONG).show();
-                }
-            });
-    private final ActivityResultLauncher<String> requestPhotoPermissionLauncher =registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-        if (isGranted) {
-            Log.i("Permission", "Photo access granted");
+    private void rotateImage(boolean clockwise) {
+        if (originalWarpedMat == null || originalWarpedMat.empty()) return;
+        Mat rotated = new Mat();
+        if (clockwise) {
+            Core.rotate(originalWarpedMat, rotated, Core.ROTATE_90_CLOCKWISE);
         } else {
-            Toast.makeText(this, "Photo access is required to pick Sudoku images", Toast.LENGTH_LONG).show();
+            Core.rotate(originalWarpedMat, rotated, Core.ROTATE_90_COUNTERCLOCKWISE);
         }
-    });
-    private void checkCameraPermission() {
+        originalWarpedMat.release();
+        originalWarpedMat = rotated;
+        updateImageThreshold();
+    }
 
-        if(ContextCompat.checkSelfPermission(
-                this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+    private void checkCameraPermission() {
+        if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             Log.i("Permission", "Camera permission already granted");
-        }
-        // 2. Check if we should show an explanation (Rationale)
-        else if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
+        } else if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
             showCameraRationaleDialog();
-        }
-        // 3. First time asking or "Don't ask again" not checked yet
-        else {
+        } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA);
         }
-
     }
-    private void checkPhotoPermission() {
-        String permissionNeeded;    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+ uses specific media image permission
-            permissionNeeded = Manifest.permission.READ_MEDIA_IMAGES;
-        } else {
-            // Android 12 and below uses general storage permission
-            permissionNeeded = Manifest.permission.READ_EXTERNAL_STORAGE;
-        }
 
-        if (ContextCompat.checkSelfPermission(this, permissionNeeded) == PackageManager.PERMISSION_GRANTED) {
-            Log.i("Permission", "Photo permission already granted");
-        } else {
-            requestPhotoPermissionLauncher.launch(permissionNeeded);
-        }
-    }
     private void showCameraRationaleDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("Camera Permission Needed")
                 .setMessage("This app uses the camera to scan Sudoku puzzles from paper. Please allow camera access.")
                 .setPositiveButton("OK", (dialog, which) -> {
-                    // Ask again after explanation
                     requestPermissionLauncher.launch(Manifest.permission.CAMERA);
                 })
                 .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
@@ -180,118 +175,129 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    private final ActivityResultLauncher<String> requestPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+                if (!isGranted) {
+                    Toast.makeText(this, "Camera permission is required", Toast.LENGTH_LONG).show();
+                }
+            });
+
     private final ActivityResultLauncher<Intent> cameraResultLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    btnEditImage.setVisibility(View.VISIBLE);
+                    handleProcessingResult(result.getData());
+                }
+            }
+    );
+
+    private final ActivityResultLauncher<Intent> editResultLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                     String imagePath = result.getData().getStringExtra("image_path");
-                    int gridSize = result.getData().getIntExtra("grid_size", 9);
-
                     if (imagePath != null) {
-                        lastCapturedImagePath = imagePath;
-                        detectedGridSize = gridSize;
-
-                        Mat src = Imgcodecs.imread(imagePath, Imgcodecs.IMREAD_GRAYSCALE);
-                        if (src.empty()) return;
-
-                        // --- DYNAMIC SCALING LOGIC ---
-                        // 9x9   -> 1000x1000 (2x)
-                        // 16x16 -> 1600x1600 (3.2x)
-                        // 25x25 -> 2000x2000 (4x)
-                        float scaleFactor = 2.0f;
-                        if (gridSize == 16) scaleFactor = 3.2f;
-                        else if (gridSize == 25) scaleFactor = 4.0f;
-
-                        int newSize = (int) (src.cols() * scaleFactor);
-
-                        Mat resized = new Mat();
-                        Imgproc.resize(src, resized, new Size(newSize, newSize), 0, 0, Imgproc.INTER_CUBIC);
-
-                        // Initialize the global Mat for sliders
-                        if (originalWarpedMat != null) originalWarpedMat.release();
-                        originalWarpedMat = resized.clone();
-
-                        // Save this high-res version to disk for SolverActivity
-                        Imgcodecs.imwrite(imagePath, resized);
-
-                        // Update Display (ImageView handles the "consistent size" via centerInside)
-                        Mat displayMat = new Mat();
-                        Imgproc.cvtColor(resized, displayMat, Imgproc.COLOR_GRAY2RGBA);
-                        Bitmap bmp = Bitmap.createBitmap(displayMat.cols(), displayMat.rows(), Bitmap.Config.ARGB_8888);
-                        Utils.matToBitmap(displayMat, bmp);
-                        ivSudokuPreview.setImageBitmap(bmp);
-
-                        src.release();
-                        resized.release();
-                        displayMat.release();
-
-                        tvSudokuStatus.setText("Detected: " + gridSize + "x" + gridSize);
-                        btnProcess.setVisibility(View.VISIBLE);
-                        sbManualThreshold.setVisibility(View.VISIBLE);
-                        tvManualThresholdLabel.setVisibility(View.VISIBLE);
-
-                        sbManualThreshold.setProgress(128);
-                        updateImageThreshold(128);
+                        originalWarpedMat = Imgcodecs.imread(imagePath, Imgcodecs.IMREAD_GRAYSCALE);
+                        updateImageThreshold();
                     }
                 }
             }
     );
 
-    private void updateImageThreshold(int progress) {
+    private final ActivityResultLauncher<Intent> galleryResultLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    handleProcessingResult(result.getData());
+                }
+            }
+    );
+
+    private void handleProcessingResult(Intent data) {
+        String imagePath = data.getStringExtra("image_path");
+        int gridSize = data.getIntExtra("grid_size", 9);
+
+        if (imagePath != null) {
+            detectedGridSize = gridSize;
+            Mat src = Imgcodecs.imread(imagePath, Imgcodecs.IMREAD_GRAYSCALE);
+            if (src.empty()) return;
+
+            float scaleFactor = 2.0f;
+            if (gridSize == 16) scaleFactor = 3.2f;
+            else if (gridSize == 25) scaleFactor = 4.0f;
+
+            int newSize = (int) (src.cols() * scaleFactor);
+            Mat resized = new Mat();
+            Imgproc.resize(src, resized, new Size(newSize, newSize), 0, 0, Imgproc.INTER_CUBIC);
+
+            if (originalWarpedMat != null) originalWarpedMat.release();
+            originalWarpedMat = resized.clone();
+            Imgcodecs.imwrite(imagePath, resized);
+            src.release();
+            resized.release();
+
+            tvSudokuStatus.setText("Image Pre-processed");
+            btnProcess.setVisibility(View.VISIBLE);
+            btnEditImage.setVisibility(View.VISIBLE);
+            swMedianBlurToggle.setVisibility(View.VISIBLE);
+            sbMedianBlurSlider.setVisibility(View.VISIBLE);
+            swMorphologyToggle.setVisibility(View.VISIBLE);
+            sbMorphologySlider.setVisibility(View.VISIBLE);
+
+            sbMedianBlurSlider.setProgress(0);
+            sbMorphologySlider.setProgress(1);
+            updateImageThreshold();
+        }
+    }
+
+    private void updateImageThreshold() {
         if (originalWarpedMat == null || originalWarpedMat.empty()) return;
 
-        Mat temp = new Mat();
-        Mat processedMat = new Mat();
+        Mat temp = originalWarpedMat.clone();
+        Core.normalize(temp, temp, 0, 255, Core.NORM_MINMAX);
 
-        // 1. Contrast Normalization
-        Core.normalize(originalWarpedMat, temp, 0, 255, Core.NORM_MINMAX);
+        if (swMedianBlurToggle.isChecked()) {
+            int ksize = (sbMedianBlurSlider.getProgress() * 2) + 1;
+            if (ksize > 1) {
+                Mat blurred = new Mat();
+                Imgproc.medianBlur(temp, blurred, ksize);
+                temp.release(); temp = blurred;
+            }
+        }
 
-        // 2. Bilateral Filter (Smooth paper)
         Mat smoothed = new Mat();
         Imgproc.bilateralFilter(temp, smoothed, 9, 75, 75);
-
-        // 3. Sharpen (Enhance digit edges)
         Mat sharpened = new Mat();
         sharpenMat(smoothed, sharpened);
 
-        // 4. Adaptive Thresholding
-        // progress / 10 - 10 allows the user to fine-tune the noise floor
-        int c_val = (progress / 10) - 10;
-        Imgproc.adaptiveThreshold(sharpened, processedMat, 255,
-                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY, 11, c_val);
+        Mat processedMat = new Mat();
+        if (swMorphologyToggle.isChecked()) {
+            sharpened.copyTo(processedMat);
+            int mSize = sbMorphologySlider.getProgress() + 1;
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(mSize, mSize));
+            Imgproc.morphologyEx(processedMat, processedMat, Imgproc.MORPH_CLOSE, kernel);
+            kernel.release();
+        } else {
+            sharpened.copyTo(processedMat);
+        }
 
-        // 5. Morphological Cleanup
-        // Using org.opencv.core.Size explicitly to avoid ambiguity
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new org.opencv.core.Size(2, 2));
-        Imgproc.morphologyEx(processedMat, processedMat, Imgproc.MORPH_CLOSE, kernel);
-
-        // Display
         Bitmap bmp = Bitmap.createBitmap(processedMat.cols(), processedMat.rows(), Bitmap.Config.ARGB_8888);
         Utils.matToBitmap(processedMat, bmp);
         ivSudokuPreview.setImageBitmap(bmp);
 
-        // Save
         File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
         Imgcodecs.imwrite(file.getAbsolutePath(), processedMat);
 
-        // Cleanup
         temp.release();
         smoothed.release();
         sharpened.release();
         processedMat.release();
-        kernel.release();
     }
 
-    /**
-     * Enhances high-frequency details (digit edges) by subtracting a
-     * blurred version of the image from the original (Unsharp Masking).
-     */
     private void sharpenMat(Mat src, Mat dst) {
         Mat blurred = new Mat();
-        // Sigma 3 provides a decent balance between sharpening and noise
-        Imgproc.GaussianBlur(src, blurred, new org.opencv.core.Size(0, 0), 3);
-        // Formula:   = src * 1.5 + blurred * -0.5 + 0
+        Imgproc.GaussianBlur(src, blurred, new Size(0, 0), 3);
         Core.addWeighted(src, 1.5, blurred, -0.5, 0, dst);
         blurred.release();
     }
@@ -299,12 +305,10 @@ public class MainActivity extends AppCompatActivity {
     private final ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
             registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
                 if (uri != null) {
-                    Log.d("PhotoPicker", "Selected URI: " + uri);
-                    ivSudokuPreview.setImageURI(uri); // Show image in ImageView
-                } else {
-                    Log.d("PhotoPicker", "No media selected");
+                    Intent intent = new Intent(MainActivity.this, ProcessingActivity.class);
+                    intent.setData(uri);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    galleryResultLauncher.launch(intent);
                 }
             });
-
-
 }

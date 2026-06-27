@@ -39,6 +39,16 @@
         <activity
             android:name=".SolverActivity"
             android:exported="false" />
+        <activity
+            android:name=".GalleryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ProcessingActivity"
+            android:exported="false" />
+        <activity
+            android:name=".EditImageActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
     </application>
 
 </manifest>
