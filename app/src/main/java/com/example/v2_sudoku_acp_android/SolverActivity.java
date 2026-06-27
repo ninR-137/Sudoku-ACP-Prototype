@@ -1,9 +1,13 @@
 package com.example.v2_sudoku_acp_android;
 
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -23,9 +27,10 @@ import java.util.List;
 
 public class SolverActivity extends AppCompatActivity {
     private GridLayout sudokuGrid;
-    private TextView[] cellArray;
+    private EditText[] cellArray;
     private int n; 
     private String imagePath;
+    private DigitRecognizer digitRecognizer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,11 +42,13 @@ public class SolverActivity extends AppCompatActivity {
 
         if (n <= 0) n = 9;
 
+        digitRecognizer = new DigitRecognizer(this);
+
         sudokuGrid = findViewById(R.id.sudokuGrid);
         sudokuGrid.setRowCount(n);
         sudokuGrid.setColumnCount(n);
 
-        cellArray = new TextView[n * n];
+        cellArray = new EditText[n * n];
         createBoard();
 
         if (imagePath != null) {
@@ -75,12 +82,22 @@ public class SolverActivity extends AppCompatActivity {
                 );
 
                 Mat cellMat = new Mat(fullImage, cellRoi);
-                boolean hasDigit = detectDigit(cellMat);
-
+                
+                Mat digitMat = extractDigit(cellMat);
+                
                 int index = r * n + c;
-                if (hasDigit) {
-                    cellArray[index].setText("X");
-                    cellArray[index].setTextColor(Color.RED);
+                if (digitMat != null) {
+                    Bitmap cellBmp = Bitmap.createBitmap(digitMat.cols(), digitMat.rows(), Bitmap.Config.ARGB_8888);
+                    Utils.matToBitmap(digitMat, cellBmp);
+                    
+                    int digit = digitRecognizer.recognize(cellBmp);
+                    if (digit > 0) {
+                        cellArray[index].setText(String.valueOf(digit));
+                        cellArray[index].setTextColor(Color.BLUE);
+                    } else {
+                        cellArray[index].setText("");
+                    }
+                    digitMat.release();
                 } else {
                     cellArray[index].setText("");
                 }
@@ -92,7 +109,7 @@ public class SolverActivity extends AppCompatActivity {
         Toast.makeText(this, "Scan Complete", Toast.LENGTH_SHORT).show();
     }
 
-    private boolean detectDigit(Mat cell) {
+    private Mat extractDigit(Mat cell) {
         Mat thresh = new Mat();
         Imgproc.adaptiveThreshold(cell, thresh, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 15, 3);
 
@@ -100,7 +117,9 @@ public class SolverActivity extends AppCompatActivity {
         Mat hierarchy = new Mat();
         Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
-        boolean digitFound = false;
+        Mat result = null;
+        double maxArea = 0;
+        Rect bestRect = null;
         double cellArea = cell.total();
 
         for (MatOfPoint contour : contours) {
@@ -108,18 +127,36 @@ public class SolverActivity extends AppCompatActivity {
             double area = Imgproc.contourArea(contour);
             double aspectRatio = (double) rect.width / rect.height;
 
-            boolean isRightSize = (area > cellArea * 0.05) && (area < cellArea * 0.7);
-            boolean isRightShape = (aspectRatio > 0.15 && aspectRatio < 1.3);
-
-            if (isRightSize && isRightShape) {
-                digitFound = true;
-                break;
+            // MNIST-like filtering
+            if (area > cellArea * 0.05 && area < cellArea * 0.8 && aspectRatio > 0.1 && aspectRatio < 1.5) {
+                if (area > maxArea) {
+                    maxArea = area;
+                    bestRect = rect;
+                }
             }
+        }
+
+        if (bestRect != null) {
+            // Extract the digit from the thresholded image
+            Mat digit = new Mat(thresh, bestRect);
+            
+            // Create a square container with padding (standard for MNIST)
+            int size = Math.max(bestRect.width, bestRect.height);
+            int padding = size / 4;
+            int finalSize = size + 2 * padding;
+            
+            Mat centered = new Mat(finalSize, finalSize, thresh.type(), new org.opencv.core.Scalar(0));
+            int xOffset = (finalSize - bestRect.width) / 2;
+            int yOffset = (finalSize - bestRect.height) / 2;
+            
+            digit.copyTo(centered.submat(new Rect(xOffset, yOffset, bestRect.width, bestRect.height)));
+            result = centered;
+            digit.release();
         }
 
         thresh.release();
         hierarchy.release();
-        return digitFound;
+        return result;
     }
 
     private void createBoard() {
@@ -131,7 +168,7 @@ public class SolverActivity extends AppCompatActivity {
         for (int r = 0; r < n; r++) {
             for (int c = 0; c < n; c++) {
                 int index = r * n + c;
-                TextView cell = new TextView(this);
+                EditText cell = new EditText(this);
                 cell.setId(View.generateViewId());
                 cellArray[index] = cell;
 
@@ -144,6 +181,13 @@ public class SolverActivity extends AppCompatActivity {
                 cell.setGravity(Gravity.CENTER);
                 cell.setTextSize(n > 16 ? 12 : 18);
                 cell.setTextColor(Color.BLACK);
+                cell.setInputType(InputType.TYPE_CLASS_NUMBER);
+                cell.setBackground(null); // Remove default underline
+
+                // Limit input to 1 character for standard Sudoku
+                if (n == 9) {
+                    cell.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1)});
+                }
 
                 if (((r / blockSize) + (c / blockSize)) % 2 == 0) {
                     cell.setBackgroundColor(Color.parseColor("#E0E0E0"));
