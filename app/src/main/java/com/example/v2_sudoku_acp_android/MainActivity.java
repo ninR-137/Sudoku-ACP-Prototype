@@ -48,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     private Mat originalWarpedMat; 
     private SeekBar sbMedianBlurSlider, sbMorphologySlider;
-    private SwitchCompat swMedianBlurToggle, swMorphologyToggle;
+    private SwitchCompat swMedianBlurToggle, swMorphologyToggle, swInvertToggle;
 
 
     @Override
@@ -79,6 +79,7 @@ public class MainActivity extends AppCompatActivity {
 
         swMorphologyToggle = findViewById(R.id.swMorphology);
         sbMorphologySlider = findViewById(R.id.sbMorphology);
+        swInvertToggle = findViewById(R.id.swInvert);
 
         SeekBar.OnSeekBarChangeListener updateListener = new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -99,6 +100,10 @@ public class MainActivity extends AppCompatActivity {
 
         swMorphologyToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
             sbMorphologySlider.setEnabled(isChecked);
+            updateImageThreshold();
+        });
+
+        swInvertToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
             updateImageThreshold();
         });
 
@@ -244,6 +249,7 @@ public class MainActivity extends AppCompatActivity {
             sbMedianBlurSlider.setVisibility(View.VISIBLE);
             swMorphologyToggle.setVisibility(View.VISIBLE);
             sbMorphologySlider.setVisibility(View.VISIBLE);
+            swInvertToggle.setVisibility(View.VISIBLE);
 
             sbMedianBlurSlider.setProgress(0);
             sbMorphologySlider.setProgress(1);
@@ -280,6 +286,10 @@ public class MainActivity extends AppCompatActivity {
             kernel.release();
         } else {
             sharpened.copyTo(processedMat);
+        }
+
+        if (swInvertToggle.isChecked()) {
+            Core.bitwise_not(processedMat, processedMat);
         }
 
         Bitmap bmp = Bitmap.createBitmap(processedMat.cols(), processedMat.rows(), Bitmap.Config.ARGB_8888);

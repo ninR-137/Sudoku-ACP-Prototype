@@ -116,6 +116,14 @@
                 android:progress="1"
                 android:visibility="gone" />
 
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swInvert"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Invert Colors"
+                android:visibility="gone" />
+
             <Button
                 android:id="@+id/btnProcess"
                 android:layout_width="match_parent"
