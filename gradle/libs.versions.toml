@@ -10,8 +10,9 @@ constraintlayout = "2.1.4"
 camerax = "1.4.1"
 opencv = "4.10.0"
 cameraCamera2Pipe = "1.4.1"
-tensorflowLite = "2.9.0"
-tensorflowLiteSupport = "0.3.1"
+tensorflowLite = "2.1.6"
+tensorflowLiteSupport = "1.4.2"
+litert = "2.1.6"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -29,9 +30,10 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 androidx-camera-extensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "camerax" }
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 androidx-camera-camera2-pipe = { group = "androidx.camera", name = "camera-camera2-pipe", version.ref = "cameraCamera2Pipe" }
-tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
-tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
-tensorflow-lite-metadata = { group = "org.tensorflow", name = "tensorflow-lite-metadata", version.ref = "tensorflowLiteSupport" }
+tensorflow-lite = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "tensorflowLite" }
+tensorflow-lite-support = { group = "com.google.ai.edge.litert", name = "litert-support", version.ref = "tensorflowLiteSupport" }
+tensorflow-lite-metadata = { group = "com.google.ai.edge.litert", name = "litert-metadata", version.ref = "tensorflowLiteSupport" }
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,5 +1,6 @@
 package com.example.v2_sudoku_acp_android;
 
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -9,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,6 +30,7 @@ import java.util.List;
 public class SolverActivity extends AppCompatActivity {
     private GridLayout sudokuGrid;
     private EditText[] cellArray;
+    private Bitmap[] debugCellImages;
     private int n; 
     private String imagePath;
     private DigitRecognizer digitRecognizer;
@@ -49,6 +52,7 @@ public class SolverActivity extends AppCompatActivity {
         sudokuGrid.setColumnCount(n);
 
         cellArray = new EditText[n * n];
+        debugCellImages = new Bitmap[n * n];
         createBoard();
 
         if (imagePath != null) {
@@ -83,9 +87,14 @@ public class SolverActivity extends AppCompatActivity {
 
                 Mat cellMat = new Mat(fullImage, cellRoi);
                 
-                Mat digitMat = extractDigit(cellMat);
-                
                 int index = r * n + c;
+
+                // Save for debug purposes
+                Bitmap debugBmp = Bitmap.createBitmap(cellMat.cols(), cellMat.rows(), Bitmap.Config.ARGB_8888);
+                Utils.matToBitmap(cellMat, debugBmp);
+                debugCellImages[index] = debugBmp;
+
+                Mat digitMat = extractDigit(cellMat);
                 if (digitMat != null) {
                     Bitmap cellBmp = Bitmap.createBitmap(digitMat.cols(), digitMat.rows(), Bitmap.Config.ARGB_8888);
                     Utils.matToBitmap(digitMat, cellBmp);
@@ -183,6 +192,19 @@ public class SolverActivity extends AppCompatActivity {
                 cell.setTextColor(Color.BLACK);
                 cell.setInputType(InputType.TYPE_CLASS_NUMBER);
                 cell.setBackground(null); // Remove default underline
+                cell.setTag(index);
+
+                // Long click for debug view
+                cell.setOnLongClickListener(v -> {
+                    int pos = (int) v.getTag();
+                    if (debugCellImages != null && debugCellImages[pos] != null) {
+                        showDebugCell(debugCellImages[pos], pos);
+                        return true;
+                    } else {
+                        Toast.makeText(this, "No image captured for cell " + pos, Toast.LENGTH_SHORT).show();
+                        return true; // Return true so we don't trigger standard long-press behavior
+                    }
+                });
 
                 // Limit input to 1 character for standard Sudoku
                 if (n == 9) {
@@ -197,5 +219,21 @@ public class SolverActivity extends AppCompatActivity {
                 sudokuGrid.addView(cell);
             }
         }
+    }
+
+    private void showDebugCell(Bitmap bitmap, int index) {
+        ImageView imageView = new ImageView(this);
+        imageView.setImageBitmap(bitmap);
+        imageView.setAdjustViewBounds(true);
+        imageView.setPadding(32, 32, 32, 32);
+
+        int r = index / n;
+        int c = index % n;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Cell Debug [" + r + "," + c + "]")
+                .setView(imageView)
+                .setPositiveButton("OK", null)
+                .show();
     }
 }
