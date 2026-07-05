@@ -1,9 +1,12 @@
 package com.example.v2_sudoku_acp_android;
 
 import android.app.AlertDialog;
+import android.content.ContentValues;
 import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
@@ -18,12 +21,17 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
+import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
+import org.opencv.core.Point;
 import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -73,8 +81,9 @@ public class SolverActivity extends AppCompatActivity {
         int cellW = fullImage.cols() / n;
         int cellH = fullImage.rows() / n;
 
-        int insetX = (int) (cellW * 0.15);
-        int insetY = (int) (cellH * 0.15);
+        // Using 5% inset to allow for misaligned digits, then resizing to 28x28
+        int insetX = (int) (cellW * 0.05);
+        int insetY = (int) (cellH * 0.05);
 
         for (int r = 0; r < n; r++) {
             for (int c = 0; c < n; c++) {
@@ -87,16 +96,20 @@ public class SolverActivity extends AppCompatActivity {
 
                 Mat cellMat = new Mat(fullImage, cellRoi);
                 
+                // Standardize to 28x28 immediately
+                Mat resizedCell = new Mat();
+                Imgproc.resize(cellMat, resizedCell, new Size(28, 28), 0, 0, Imgproc.INTER_AREA);
+
                 int index = r * n + c;
 
-                // Save for debug purposes
-                Bitmap debugBmp = Bitmap.createBitmap(cellMat.cols(), cellMat.rows(), Bitmap.Config.ARGB_8888);
-                Utils.matToBitmap(cellMat, debugBmp);
+                // Save for debug purposes (now exactly 28x28)
+                Bitmap debugBmp = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
+                Utils.matToBitmap(resizedCell, debugBmp);
                 debugCellImages[index] = debugBmp;
 
-                Mat digitMat = extractDigit(cellMat);
+                Mat digitMat = extractDigit(resizedCell);
                 if (digitMat != null) {
-                    Bitmap cellBmp = Bitmap.createBitmap(digitMat.cols(), digitMat.rows(), Bitmap.Config.ARGB_8888);
+                    Bitmap cellBmp = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
                     Utils.matToBitmap(digitMat, cellBmp);
                     
                     int digit = digitRecognizer.recognize(cellBmp);
@@ -110,6 +123,7 @@ public class SolverActivity extends AppCompatActivity {
                 } else {
                     cellArray[index].setText("");
                 }
+                resizedCell.release();
                 cellMat.release();
             }
         }
@@ -121,6 +135,9 @@ public class SolverActivity extends AppCompatActivity {
     private Mat extractDigit(Mat cell) {
         Mat thresh = new Mat();
         Imgproc.adaptiveThreshold(cell, thresh, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 15, 3);
+
+        // Clear borders to remove grid lines
+        clearBorders(thresh);
 
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
@@ -136,8 +153,8 @@ public class SolverActivity extends AppCompatActivity {
             double area = Imgproc.contourArea(contour);
             double aspectRatio = (double) rect.width / rect.height;
 
-            // MNIST-like filtering
-            if (area > cellArea * 0.05 && area < cellArea * 0.8 && aspectRatio > 0.1 && aspectRatio < 1.5) {
+            // MNIST-like filtering (Area relaxed to 3% to catch small/thin digits)
+            if (area > cellArea * 0.03 && area < cellArea * 0.8 && aspectRatio > 0.1 && aspectRatio < 1.5) {
                 if (area > maxArea) {
                     maxArea = area;
                     bestRect = rect;
@@ -149,23 +166,44 @@ public class SolverActivity extends AppCompatActivity {
             // Extract the digit from the thresholded image
             Mat digit = new Mat(thresh, bestRect);
             
-            // Create a square container with padding (standard for MNIST)
-            int size = Math.max(bestRect.width, bestRect.height);
-            int padding = size / 4;
-            int finalSize = size + 2 * padding;
+            // Create a fixed 28x28 square container (MNIST standard)
+            Mat centered = new Mat(28, 28, thresh.type(), new Scalar(0));
             
-            Mat centered = new Mat(finalSize, finalSize, thresh.type(), new org.opencv.core.Scalar(0));
-            int xOffset = (finalSize - bestRect.width) / 2;
-            int yOffset = (finalSize - bestRect.height) / 2;
+            // Calculate scale to fit digit into 20x20 area (standard for centered MNIST)
+            double scale = 20.0 / Math.max(bestRect.width, bestRect.height);
+            Mat scaledDigit = new Mat();
+            Imgproc.resize(digit, scaledDigit, new Size(), scale, scale, Imgproc.INTER_AREA);
             
-            digit.copyTo(centered.submat(new Rect(xOffset, yOffset, bestRect.width, bestRect.height)));
+            int xOffset = (28 - scaledDigit.cols()) / 2;
+            int yOffset = (28 - scaledDigit.rows()) / 2;
+            
+            scaledDigit.copyTo(centered.submat(new Rect(xOffset, yOffset, scaledDigit.cols(), scaledDigit.rows())));
             result = centered;
+            
             digit.release();
+            scaledDigit.release();
         }
 
         thresh.release();
         hierarchy.release();
         return result;
+    }
+
+    private void clearBorders(Mat binary) {
+        int w = binary.cols();
+        int h = binary.rows();
+        Mat mask = new Mat(h + 2, w + 2, CvType.CV_8UC1, new Scalar(0));
+        Scalar black = new Scalar(0);
+
+        for (int i = 0; i < w; i++) {
+            if (binary.get(0, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, 0), black);
+            if (binary.get(h - 1, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, h - 1), black);
+        }
+        for (int i = 0; i < h; i++) {
+            if (binary.get(i, 0)[0] == 255) Imgproc.floodFill(binary, mask, new Point(0, i), black);
+            if (binary.get(i, w - 1)[0] == 255) Imgproc.floodFill(binary, mask, new Point(w - 1, i), black);
+        }
+        mask.release();
     }
 
     private void createBoard() {
@@ -233,7 +271,29 @@ public class SolverActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle("Cell Debug [" + r + "," + c + "]")
                 .setView(imageView)
-                .setPositiveButton("OK", null)
+                .setPositiveButton("Save to Gallery", (dialog, which) -> saveBitmapToGallery(bitmap, "cell_" + r + "_" + c))
+                .setNegativeButton("Close", null)
                 .show();
+    }
+
+    private void saveBitmapToGallery(Bitmap bitmap, String name) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, name + ".jpg");
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SudokuDebug");
+
+        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri != null) {
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out != null) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                    Toast.makeText(this, "Saved to Gallery", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Failed to open output stream", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                Toast.makeText(this, "Failed to save: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 }

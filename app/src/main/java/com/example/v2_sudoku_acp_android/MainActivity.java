@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -43,12 +44,12 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvSudokuStatus;
     private ImageButton btnEditImage;
 
-    private Button btnProcess;
+    private Button btnProcess, btnCrop;
     private int detectedGridSize = 9;
 
     private Mat originalWarpedMat; 
     private SeekBar sbMedianBlurSlider, sbMorphologySlider;
-    private SwitchCompat swMedianBlurToggle, swMorphologyToggle;
+    private SwitchCompat swMedianBlurToggle, swMorphologyToggle, swInvertToggle;
 
 
     @Override
@@ -79,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
 
         swMorphologyToggle = findViewById(R.id.swMorphology);
         sbMorphologySlider = findViewById(R.id.sbMorphology);
+        swInvertToggle = findViewById(R.id.swInvert);
 
         SeekBar.OnSeekBarChangeListener updateListener = new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -102,8 +104,15 @@ public class MainActivity extends AppCompatActivity {
             updateImageThreshold();
         });
 
+        swInvertToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            updateImageThreshold();
+        });
+
         btnRotateLeft.setOnClickListener(v -> rotateImage(false));
         btnRotateRight.setOnClickListener(v -> rotateImage(true));
+
+        btnCrop = findViewById(R.id.btnCrop);
+        btnCrop.setOnClickListener(v -> startCropIntent());
 
         btnEditImage.setOnClickListener(v -> {
             File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
@@ -240,10 +249,12 @@ public class MainActivity extends AppCompatActivity {
             tvSudokuStatus.setText("Image Pre-processed");
             btnProcess.setVisibility(View.VISIBLE);
             btnEditImage.setVisibility(View.VISIBLE);
+            btnCrop.setVisibility(View.VISIBLE);
             swMedianBlurToggle.setVisibility(View.VISIBLE);
             sbMedianBlurSlider.setVisibility(View.VISIBLE);
             swMorphologyToggle.setVisibility(View.VISIBLE);
             sbMorphologySlider.setVisibility(View.VISIBLE);
+            swInvertToggle.setVisibility(View.VISIBLE);
 
             sbMedianBlurSlider.setProgress(0);
             sbMorphologySlider.setProgress(1);
@@ -282,6 +293,10 @@ public class MainActivity extends AppCompatActivity {
             sharpened.copyTo(processedMat);
         }
 
+        if (swInvertToggle.isChecked()) {
+            Core.bitwise_not(processedMat, processedMat);
+        }
+
         Bitmap bmp = Bitmap.createBitmap(processedMat.cols(), processedMat.rows(), Bitmap.Config.ARGB_8888);
         Utils.matToBitmap(processedMat, bmp);
         ivSudokuPreview.setImageBitmap(bmp);
@@ -311,4 +326,43 @@ public class MainActivity extends AppCompatActivity {
                     galleryResultLauncher.launch(intent);
                 }
             });
+
+    private void startCropIntent() {
+        try {
+            File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
+            if (!file.exists()) {
+                Toast.makeText(this, "No image to crop", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+            
+            Intent intent = new Intent("com.android.camera.action.CROP");
+            intent.setDataAndType(uri, "image/*");
+            intent.putExtra("crop", "true");
+            intent.putExtra("aspectX", 1);
+            intent.putExtra("aspectY", 1);
+            intent.putExtra("outputX", 1000);
+            intent.putExtra("outputY", 1000);
+            intent.putExtra("scale", true);
+            intent.putExtra("return-data", false);
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+            cropResultLauncher.launch(intent);
+        } catch (Exception e) {
+            Log.e("MainActivity", "Crop intent failed", e);
+            Toast.makeText(this, "Standard crop not supported on this device", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private final ActivityResultLauncher<Intent> cropResultLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == RESULT_OK) {
+                    originalWarpedMat = Imgcodecs.imread(new File(getExternalFilesDir(null), "captured_sudoku.jpg").getAbsolutePath(), Imgcodecs.IMREAD_GRAYSCALE);
+                    updateImageThreshold();
+                }
+            }
+    );
 }
