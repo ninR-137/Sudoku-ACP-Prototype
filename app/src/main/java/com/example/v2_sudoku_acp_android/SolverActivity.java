@@ -134,14 +134,22 @@ public class SolverActivity extends AppCompatActivity {
         Imgproc.GaussianBlur(cell, blurred, new Size(3, 3), 0);
 
         Mat thresh = new Mat();
-        Imgproc.adaptiveThreshold(
+//        Imgproc.adaptiveThreshold(
+//                blurred,
+//                thresh,
+//                255,
+//                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+//                Imgproc.THRESH_BINARY_INV,
+//                15,
+//                3
+//        );
+
+        Imgproc.threshold(
                 blurred,
                 thresh,
+                0,
                 255,
-                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY_INV,
-                15,
-                3
+                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
         );
         blurred.release();
 
