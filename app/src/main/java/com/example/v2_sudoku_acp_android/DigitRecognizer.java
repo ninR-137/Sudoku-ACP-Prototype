@@ -19,10 +19,10 @@ import java.util.Locale;
 
 public class DigitRecognizer {
     private static final String TAG = "DigitRecognizer";
-    private static final String MODEL_FILE = "mnist.tflite";
+    private static final String MODEL_FILE = "tmnist_x_mnist_2.tflite";
     private static final int INPUT_SIZE = 28;
     private static final int PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE;
-    private static final float CONFIDENCE_THRESHOLD = 0.60f;
+    private static final float CONFIDENCE_THRESHOLD = 0.10f;
 
     private final Context context;
     private Interpreter tflite;
@@ -56,7 +56,7 @@ public class DigitRecognizer {
         }
     }
 
-    public int recognize(Bitmap bitmap) {
+    public int recognize(Bitmap bitmap, int index) {
         if (!isLoaded || bitmap == null) {
             Log.w(TAG, "recognize() skipped: model not loaded or bitmap is null");
             return -1;
@@ -110,13 +110,18 @@ public class DigitRecognizer {
             }
         }
 
-        Log.d(TAG, scores.toString());
+//        Log.d(TAG, scores.toString());
+//        Log.d(TAG,
+//                "Prediction sample=" + sampleId +
+//                        ", predicted digit=" + maxIdx +
+//                        ", confidence=" + String.format(Locale.US, "%.4f", maxProb) +
+//                        ", inputRange=[" + String.format(Locale.US, "%.4f", min) + ", " + String.format(Locale.US, "%.4f", max) + "]"
+//        );
+
         Log.d(TAG,
-                "Prediction sample=" + sampleId +
-                        ", predicted digit=" + maxIdx +
-                        ", confidence=" + String.format(Locale.US, "%.4f", maxProb) +
-                        ", inputRange=[" + String.format(Locale.US, "%.4f", min) + ", " + String.format(Locale.US, "%.4f", max) + "]"
+                "Confidence= " + String.format(Locale.US, "%.4f", maxProb) + " Index=" + index +  ", predicted digit=" + maxIdx
         );
+        Log.d(TAG, "");
 
         if (maxProb < CONFIDENCE_THRESHOLD) {
             return -1;

@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -35,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SolverActivity extends AppCompatActivity {
+    private static final String TAG = "SolverActivity";
     private GridLayout sudokuGrid;
     private EditText[] cellArray;
     private Bitmap[] debugCellImages;
@@ -100,19 +102,20 @@ public class SolverActivity extends AppCompatActivity {
                 );
 
                 Mat cellMat = new Mat(fullImage, cellRoi);
-                Mat preparedDigit = extractDigitForMnist(cellMat);
+                Mat preparedDigit = extractDigitForMnist(cellMat, index);
 
                 if (preparedDigit != null) {
                     Bitmap digitBitmap = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
                     Utils.matToBitmap(preparedDigit, digitBitmap);
                     debugCellImages[index] = digitBitmap.copy(Bitmap.Config.ARGB_8888, false);
 
-                    int digit = digitRecognizer.recognize(digitBitmap);
-                    if (digit > 0) {
+                    int digit = digitRecognizer.recognize(digitBitmap, index);
+                    if (digit > -1) {
                         cellArray[index].setText(String.valueOf(digit));
                         cellArray[index].setTextColor(Color.BLUE);
                     } else {
-                        cellArray[index].setText("");
+                        cellArray[index].setText("NA");
+                        cellArray[index].setTextColor(Color.RED);
                     }
 
                     preparedDigit.release();
@@ -129,7 +132,7 @@ public class SolverActivity extends AppCompatActivity {
         Toast.makeText(this, "Scan Complete", Toast.LENGTH_SHORT).show();
     }
 
-    private Mat extractDigitForMnist(Mat cell) {
+    private Mat extractDigitForMnist(Mat cell, int index) {
         Mat blurred = new Mat();
         Imgproc.GaussianBlur(cell, blurred, new Size(3, 3), 0);
 
@@ -151,13 +154,54 @@ public class SolverActivity extends AppCompatActivity {
                 255,
                 Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
         );
+
+        // --- Fix 2: fallback to adaptive threshold if Otsu found almost nothing ---
+        double totalPixels = thresh.rows() * thresh.cols();
+        double whiteRatio = Core.countNonZero(thresh) / totalPixels;
+//        Log.d(TAG, "Otsu whiteRatio (" + whiteRatio +
+//                ") for cell " + index);
+
+        if (whiteRatio < 0.015) {
+            Log.d(TAG, "Otsu produced too little foreground (" + whiteRatio +
+                    ") for cell " + index + ", falling back to adaptive threshold");
+
+            Imgproc.adaptiveThreshold(
+                    blurred,
+                    thresh,
+                    255,
+                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    Imgproc.THRESH_BINARY_INV,
+                    15,
+                    3
+            );
+        }
+        // ---------------------------------------------------------------------
+
+        int beforeClear = Core.countNonZero(thresh);
+
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " before clearBorders whitePixels=" + beforeClear);
+
         blurred.release();
 
-        clearBorders(thresh);
+//        clearBorders(thresh);
+        clearBorderBand(thresh,6);
+
+        int afterClear = Core.countNonZero(thresh);
+
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " after clearBorders whitePixels=" + afterClear);
+
 
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
-        Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+        Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);  //Need to check how this works
+
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " contours=" + contours.size());
 
         Rect bestRect = null;
         double maxArea = 0;
@@ -168,7 +212,7 @@ public class SolverActivity extends AppCompatActivity {
             double area = Imgproc.contourArea(contour);
             double aspectRatio = rect.height == 0 ? 0 : (double) rect.width / rect.height;
 
-            if (area > cellArea * 0.03 && area < cellArea * 0.80 && aspectRatio > 0.10 && aspectRatio < 1.50) {
+            if (area > cellArea * 0.03 && area < cellArea * 0.80 && aspectRatio > 0.10 && aspectRatio < 1.5) {
                 if (area > maxArea) {
                     maxArea = area;
                     bestRect = rect;
@@ -177,9 +221,57 @@ public class SolverActivity extends AppCompatActivity {
             contour.release();
         }
 
+        // ---------------------------------------------------------------------
+//        Rect bestRect = null;
+//        double largestCandidateArea = 0;
+//        double cellArea = cell.rows() * cell.cols();
+//
+//        for (MatOfPoint contour : contours) {
+//            Log.w(TAG, "Contour found in index: " + index);
+//            Rect rect = Imgproc.boundingRect(contour);
+//            double area = Imgproc.contourArea(contour);
+//
+//            if (rect.height <= 0) {
+//                contour.release();
+//                continue;
+//            }
+//
+//            double aspectRatio = (double) rect.width / rect.height;
+//
+//            double minArea = cellArea * 0.005;
+//            double maxAllowedArea = cellArea * 0.70;
+//
+//            int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
+//            int minHeight = Math.max(4, (int) (cell.rows() * 0.10));
+//
+//            boolean validCandidate =
+//                    area > minArea &&
+//                            area < maxAllowedArea &&
+//                            rect.width >= minWidth &&
+//                            rect.height >= minHeight &&
+//                            aspectRatio > 0.10 &&
+//                            aspectRatio < 2.0;
+//
+//            Log.d(TAG,
+//                    "cell=" + index +
+//                            " area=" + area +
+//                            " rect=" + rect.width + "x" + rect.height +
+//                            " aspect=" + aspectRatio +
+//                            " valid=" + validCandidate);
+//
+//            if (validCandidate && area > largestCandidateArea) {
+//                largestCandidateArea = area;
+//                bestRect = rect;
+//            }
+//
+//            contour.release();
+//        }
+//
+//        // ---------------------------------------------------------------------
         hierarchy.release();
 
         if (bestRect == null) {
+//            Log.w(TAG, "bestRect == null for cell: " + index);
             thresh.release();
             return null;
         }
@@ -207,23 +299,64 @@ public class SolverActivity extends AppCompatActivity {
         return mnistCanvas;
     }
 
-    private void clearBorders(Mat binary) {
+//    private void clearBorders(Mat binary) {
+//        int w = binary.cols();
+//        int h = binary.rows();
+//        Mat mask = new Mat(h + 2, w + 2, CvType.CV_8UC1, new Scalar(0));
+//        Scalar black = new Scalar(0);
+//
+//        for (int i = 0; i < w; i++) {
+//            if (binary.get(0, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, 0), black);
+//            if (binary.get(h - 1, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, h - 1), black);
+//        }
+//        for (int i = 0; i < h; i++) {
+//            if (binary.get(i, 0)[0] == 255) Imgproc.floodFill(binary, mask, new Point(0, i), black);
+//            if (binary.get(i, w - 1)[0] == 255) Imgproc.floodFill(binary, mask, new Point(w - 1, i), black);
+//        }
+//        mask.release();
+//    }
+
+    private void clearBorderBand(Mat binary, int borderSize) {
         int w = binary.cols();
         int h = binary.rows();
-        Mat mask = new Mat(h + 2, w + 2, CvType.CV_8UC1, new Scalar(0));
-        Scalar black = new Scalar(0);
 
-        for (int i = 0; i < w; i++) {
-            if (binary.get(0, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, 0), black);
-            if (binary.get(h - 1, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, h - 1), black);
-        }
-        for (int i = 0; i < h; i++) {
-            if (binary.get(i, 0)[0] == 255) Imgproc.floodFill(binary, mask, new Point(0, i), black);
-            if (binary.get(i, w - 1)[0] == 255) Imgproc.floodFill(binary, mask, new Point(w - 1, i), black);
-        }
+        // Top
+        Imgproc.rectangle(
+                binary,
+                new Point(0, 0),
+                new Point(w - 1, borderSize - 1),
+                new Scalar(0),
+                -1
+        );
 
-        mask.release();
+        // Bottom
+        Imgproc.rectangle(
+                binary,
+                new Point(0, h - borderSize),
+                new Point(w - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
+
+        // Left
+        Imgproc.rectangle(
+                binary,
+                new Point(0, 0),
+                new Point(borderSize - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
+
+        // Right
+        Imgproc.rectangle(
+                binary,
+                new Point(w - borderSize, 0),
+                new Point(w - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
     }
+
 
     private void createBoard() {
         int blockSize = (int) Math.sqrt(n);
