@@ -2,19 +2,20 @@ package com.example.v2_sudoku_acp_android;
 
 import android.app.AlertDialog;
 import android.content.ContentValues;
-import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -36,12 +37,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SolverActivity extends AppCompatActivity {
+    private static final String TAG = "SolverActivity";
     private GridLayout sudokuGrid;
     private EditText[] cellArray;
     private Bitmap[] debugCellImages;
-    private int n; 
+    private int n;
     private String imagePath;
     private DigitRecognizer digitRecognizer;
+    private Button btnSolve;
+
+    static {
+        System.loadLibrary("native-lib");
+    }
+
+    public native String solveSudokuNative(String puzzleStr, int algorithm, int threads);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,7 +59,6 @@ public class SolverActivity extends AppCompatActivity {
 
         n = getIntent().getIntExtra("grid_size", 9);
         imagePath = getIntent().getStringExtra("image_path");
-
         if (n <= 0) n = 9;
 
         digitRecognizer = new DigitRecognizer(this);
@@ -63,8 +71,19 @@ public class SolverActivity extends AppCompatActivity {
         debugCellImages = new Bitmap[n * n];
         createBoard();
 
+        btnSolve = findViewById(R.id.btnSolve);
+        btnSolve.setOnClickListener(v -> solveWithMCAS());
+
         if (imagePath != null) {
             processFullBoard();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (digitRecognizer != null) {
+            digitRecognizer.close();
         }
     }
 
@@ -75,18 +94,17 @@ public class SolverActivity extends AppCompatActivity {
             return;
         }
 
-        // Contrast Normalization
         Core.normalize(fullImage, fullImage, 0, 255, Core.NORM_MINMAX);
 
         int cellW = fullImage.cols() / n;
         int cellH = fullImage.rows() / n;
-
-        // Using 5% inset to allow for misaligned digits, then resizing to 28x28
         int insetX = (int) (cellW * 0.05);
         int insetY = (int) (cellH * 0.05);
 
         for (int r = 0; r < n; r++) {
             for (int c = 0; c < n; c++) {
+                int index = r * n + c;
+
                 Rect cellRoi = new Rect(
                         (c * cellW) + insetX,
                         (r * cellH) + insetY,
@@ -95,35 +113,28 @@ public class SolverActivity extends AppCompatActivity {
                 );
 
                 Mat cellMat = new Mat(fullImage, cellRoi);
-                
-                // Standardize to 28x28 immediately
-                Mat resizedCell = new Mat();
-                Imgproc.resize(cellMat, resizedCell, new Size(28, 28), 0, 0, Imgproc.INTER_AREA);
+                Mat preparedDigit = extractDigitForMnist(cellMat, index);
 
-                int index = r * n + c;
+                if (preparedDigit != null) {
+                    Bitmap digitBitmap = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
+                    Utils.matToBitmap(preparedDigit, digitBitmap);
+                    debugCellImages[index] = digitBitmap.copy(Bitmap.Config.ARGB_8888, false);
 
-                // Save for debug purposes (now exactly 28x28)
-                Bitmap debugBmp = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
-                Utils.matToBitmap(resizedCell, debugBmp);
-                debugCellImages[index] = debugBmp;
-
-                Mat digitMat = extractDigit(resizedCell);
-                if (digitMat != null) {
-                    Bitmap cellBmp = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888);
-                    Utils.matToBitmap(digitMat, cellBmp);
-                    
-                    int digit = digitRecognizer.recognize(cellBmp);
-                    if (digit > 0) {
+                    int digit = digitRecognizer.recognize(digitBitmap, index);
+                    if (digit > -1) {
                         cellArray[index].setText(String.valueOf(digit));
                         cellArray[index].setTextColor(Color.BLUE);
                     } else {
-                        cellArray[index].setText("");
+                        cellArray[index].setText("NA");
+                        cellArray[index].setTextColor(Color.RED);
                     }
-                    digitMat.release();
+
+                    preparedDigit.release();
                 } else {
+                    debugCellImages[index] = null;
                     cellArray[index].setText("");
                 }
-                resizedCell.release();
+
                 cellMat.release();
             }
         }
@@ -132,79 +143,231 @@ public class SolverActivity extends AppCompatActivity {
         Toast.makeText(this, "Scan Complete", Toast.LENGTH_SHORT).show();
     }
 
-    private Mat extractDigit(Mat cell) {
-        Mat thresh = new Mat();
-        Imgproc.adaptiveThreshold(cell, thresh, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 15, 3);
+    private Mat extractDigitForMnist(Mat cell, int index) {
+        Mat blurred = new Mat();
+        Imgproc.GaussianBlur(cell, blurred, new Size(3, 3), 0);
 
-        // Clear borders to remove grid lines
-        clearBorders(thresh);
+        Mat thresh = new Mat();
+//        Imgproc.adaptiveThreshold(
+//                blurred,
+//                thresh,
+//                255,
+//                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+//                Imgproc.THRESH_BINARY_INV,
+//                15,
+//                3
+//        );
+
+        Imgproc.threshold(
+                blurred,
+                thresh,
+                0,
+                255,
+                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
+        );
+
+        // --- Fix 2: fallback to adaptive threshold if Otsu found almost nothing ---
+        double totalPixels = thresh.rows() * thresh.cols();
+        double whiteRatio = Core.countNonZero(thresh) / totalPixels;
+//        Log.d(TAG, "Otsu whiteRatio (" + whiteRatio +
+//                ") for cell " + index);
+
+        if (whiteRatio < 0.015) {
+            Log.d(TAG, "Otsu produced too little foreground (" + whiteRatio +
+                    ") for cell " + index + ", falling back to adaptive threshold");
+
+            Imgproc.adaptiveThreshold(
+                    blurred,
+                    thresh,
+                    255,
+                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    Imgproc.THRESH_BINARY_INV,
+                    15,
+                    3
+            );
+        }
+        // ---------------------------------------------------------------------
+
+        int beforeClear = Core.countNonZero(thresh);
+
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " before clearBorders whitePixels=" + beforeClear);
+
+        blurred.release();
+
+//        clearBorders(thresh);
+        clearBorderBand(thresh,6);
+
+        int afterClear = Core.countNonZero(thresh);
+
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " after clearBorders whitePixels=" + afterClear);
+
 
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
-        Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+        Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);  //Need to check how this works
 
-        Mat result = null;
-        double maxArea = 0;
+//        Log.d(TAG,
+//                "cell=" + index +
+//                        " contours=" + contours.size());
+
         Rect bestRect = null;
-        double cellArea = cell.total();
+        double maxArea = 0;
+        double cellArea = cell.rows() * cell.cols();
 
         for (MatOfPoint contour : contours) {
             Rect rect = Imgproc.boundingRect(contour);
             double area = Imgproc.contourArea(contour);
-            double aspectRatio = (double) rect.width / rect.height;
+            double aspectRatio = rect.height == 0 ? 0 : (double) rect.width / rect.height;
 
-            // MNIST-like filtering (Area relaxed to 3% to catch small/thin digits)
-            if (area > cellArea * 0.03 && area < cellArea * 0.8 && aspectRatio > 0.1 && aspectRatio < 1.5) {
+            if (area > cellArea * 0.03 && area < cellArea * 0.80 && aspectRatio > 0.10 && aspectRatio < 1.5) {
                 if (area > maxArea) {
                     maxArea = area;
                     bestRect = rect;
                 }
             }
+            contour.release();
         }
 
-        if (bestRect != null) {
-            // Extract the digit from the thresholded image
-            Mat digit = new Mat(thresh, bestRect);
-            
-            // Create a fixed 28x28 square container (MNIST standard)
-            Mat centered = new Mat(28, 28, thresh.type(), new Scalar(0));
-            
-            // Calculate scale to fit digit into 20x20 area (standard for centered MNIST)
-            double scale = 20.0 / Math.max(bestRect.width, bestRect.height);
-            Mat scaledDigit = new Mat();
-            Imgproc.resize(digit, scaledDigit, new Size(), scale, scale, Imgproc.INTER_AREA);
-            
-            int xOffset = (28 - scaledDigit.cols()) / 2;
-            int yOffset = (28 - scaledDigit.rows()) / 2;
-            
-            scaledDigit.copyTo(centered.submat(new Rect(xOffset, yOffset, scaledDigit.cols(), scaledDigit.rows())));
-            result = centered;
-            
-            digit.release();
-            scaledDigit.release();
-        }
-
-        thresh.release();
+        // ---------------------------------------------------------------------
+//        Rect bestRect = null;
+//        double largestCandidateArea = 0;
+//        double cellArea = cell.rows() * cell.cols();
+//
+//        for (MatOfPoint contour : contours) {
+//            Log.w(TAG, "Contour found in index: " + index);
+//            Rect rect = Imgproc.boundingRect(contour);
+//            double area = Imgproc.contourArea(contour);
+//
+//            if (rect.height <= 0) {
+//                contour.release();
+//                continue;
+//            }
+//
+//            double aspectRatio = (double) rect.width / rect.height;
+//
+//            double minArea = cellArea * 0.005;
+//            double maxAllowedArea = cellArea * 0.70;
+//
+//            int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
+//            int minHeight = Math.max(4, (int) (cell.rows() * 0.10));
+//
+//            boolean validCandidate =
+//                    area > minArea &&
+//                            area < maxAllowedArea &&
+//                            rect.width >= minWidth &&
+//                            rect.height >= minHeight &&
+//                            aspectRatio > 0.10 &&
+//                            aspectRatio < 2.0;
+//
+//            Log.d(TAG,
+//                    "cell=" + index +
+//                            " area=" + area +
+//                            " rect=" + rect.width + "x" + rect.height +
+//                            " aspect=" + aspectRatio +
+//                            " valid=" + validCandidate);
+//
+//            if (validCandidate && area > largestCandidateArea) {
+//                largestCandidateArea = area;
+//                bestRect = rect;
+//            }
+//
+//            contour.release();
+//        }
+//
+//        // ---------------------------------------------------------------------
         hierarchy.release();
-        return result;
+
+        if (bestRect == null) {
+//            Log.w(TAG, "bestRect == null for cell: " + index);
+            thresh.release();
+            return null;
+        }
+
+        Mat digit = new Mat(thresh, bestRect);
+        Mat mnistCanvas = Mat.zeros(28, 28, CvType.CV_8UC1);
+
+        double scale = 20.0 / Math.max(bestRect.width, bestRect.height);
+        int scaledW = Math.max(1, (int) Math.round(digit.cols() * scale));
+        int scaledH = Math.max(1, (int) Math.round(digit.rows() * scale));
+
+        Mat scaledDigit = new Mat();
+        Imgproc.resize(digit, scaledDigit, new Size(scaledW, scaledH), 0, 0, Imgproc.INTER_AREA);
+
+
+        int xOffset = (28 - scaledW) / 2;
+        int yOffset = (28 - scaledH) / 2;
+        Rect targetRect = new Rect(xOffset, yOffset, scaledW, scaledH);
+        scaledDigit.copyTo(mnistCanvas.submat(targetRect));
+
+        digit.release();
+        scaledDigit.release();
+        thresh.release();
+
+        return mnistCanvas;
     }
 
-    private void clearBorders(Mat binary) {
+//    private void clearBorders(Mat binary) {
+//        int w = binary.cols();
+//        int h = binary.rows();
+//        Mat mask = new Mat(h + 2, w + 2, CvType.CV_8UC1, new Scalar(0));
+//        Scalar black = new Scalar(0);
+//
+//        for (int i = 0; i < w; i++) {
+//            if (binary.get(0, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, 0), black);
+//            if (binary.get(h - 1, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, h - 1), black);
+//        }
+//        for (int i = 0; i < h; i++) {
+//            if (binary.get(i, 0)[0] == 255) Imgproc.floodFill(binary, mask, new Point(0, i), black);
+//            if (binary.get(i, w - 1)[0] == 255) Imgproc.floodFill(binary, mask, new Point(w - 1, i), black);
+//        }
+//        mask.release();
+//    }
+
+    private void clearBorderBand(Mat binary, int borderSize) {
         int w = binary.cols();
         int h = binary.rows();
-        Mat mask = new Mat(h + 2, w + 2, CvType.CV_8UC1, new Scalar(0));
-        Scalar black = new Scalar(0);
 
-        for (int i = 0; i < w; i++) {
-            if (binary.get(0, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, 0), black);
-            if (binary.get(h - 1, i)[0] == 255) Imgproc.floodFill(binary, mask, new Point(i, h - 1), black);
-        }
-        for (int i = 0; i < h; i++) {
-            if (binary.get(i, 0)[0] == 255) Imgproc.floodFill(binary, mask, new Point(0, i), black);
-            if (binary.get(i, w - 1)[0] == 255) Imgproc.floodFill(binary, mask, new Point(w - 1, i), black);
-        }
-        mask.release();
+        // Top
+        Imgproc.rectangle(
+                binary,
+                new Point(0, 0),
+                new Point(w - 1, borderSize - 1),
+                new Scalar(0),
+                -1
+        );
+
+        // Bottom
+        Imgproc.rectangle(
+                binary,
+                new Point(0, h - borderSize),
+                new Point(w - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
+
+        // Left
+        Imgproc.rectangle(
+                binary,
+                new Point(0, 0),
+                new Point(borderSize - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
+
+        // Right
+        Imgproc.rectangle(
+                binary,
+                new Point(w - borderSize, 0),
+                new Point(w - 1, h - 1),
+                new Scalar(0),
+                -1
+        );
     }
+
 
     private void createBoard() {
         int blockSize = (int) Math.sqrt(n);
@@ -229,10 +392,9 @@ public class SolverActivity extends AppCompatActivity {
                 cell.setTextSize(n > 16 ? 12 : 18);
                 cell.setTextColor(Color.BLACK);
                 cell.setInputType(InputType.TYPE_CLASS_NUMBER);
-                cell.setBackground(null); // Remove default underline
+                cell.setBackground(null);
                 cell.setTag(index);
 
-                // Long click for debug view
                 cell.setOnLongClickListener(v -> {
                     int pos = (int) v.getTag();
                     if (debugCellImages != null && debugCellImages[pos] != null) {
@@ -240,11 +402,10 @@ public class SolverActivity extends AppCompatActivity {
                         return true;
                     } else {
                         Toast.makeText(this, "No image captured for cell " + pos, Toast.LENGTH_SHORT).show();
-                        return true; // Return true so we don't trigger standard long-press behavior
+                        return true;
                     }
                 });
 
-                // Limit input to 1 character for standard Sudoku
                 if (n == 9) {
                     cell.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1)});
                 }
@@ -257,6 +418,40 @@ public class SolverActivity extends AppCompatActivity {
                 sudokuGrid.addView(cell);
             }
         }
+    }
+
+    private void solveWithMCAS() {
+        String puzzle = getBoardString();
+        // algorithm 2 = MCAS, using 4 threads
+        String solution = solveSudokuNative(puzzle, 2, 4);
+
+        if (solution != null && !solution.isEmpty() && solution.length() == n * n) {
+            for (int i = 0; i < solution.length(); i++) {
+                char c = solution.charAt(i);
+                if (c != '.') {
+                    cellArray[i].setText(String.valueOf(c));
+                    cellArray[i].setTextColor(Color.BLACK); // Solution in black
+                }
+            }
+            Toast.makeText(this, "Solved!", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "No solution found within timeout", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String getBoardString() {
+        StringBuilder sb = new StringBuilder();
+        for (EditText et : cellArray) {
+            String val = et.getText().toString();
+            if (val.isEmpty()) {
+                sb.append(".");
+            } else {
+                // The C++ Board constructor handles 9x9 (1-9), 16x16 (0-f), 25x25 (a-y)
+                // We assume the user or OCR has entered valid characters for the size.
+                sb.append(val.toLowerCase());
+            }
+        }
+        return sb.toString();
     }
 
     private void showDebugCell(Bitmap bitmap, int index) {
