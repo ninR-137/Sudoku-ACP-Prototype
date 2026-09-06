@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SudoPHASE – About Game</title>
+  <style>
+    :root {
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --accent: #7aa2f7;
+      --border: #3b4261;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f7ff;
+      --surface: #ffffff;
+      --text: #1f2335;
+      --accent: #3366ff;
+      --border: #c5cee0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    a.back {
+      display: inline-block; color: var(--accent); font-size: 0.95rem; text-decoration: none;
+      margin-bottom: 1.5rem;
+    }
+    a.back:hover { text-decoration: underline; }
+    h1 { font-size: 1.75rem; color: var(--accent); margin-bottom: 0.5rem; }
+    h2 { font-size: 1.2rem; color: var(--accent); margin-top: 1.75rem; margin-bottom: 0.5rem; }
+    h3 { font-size: 1.05rem; color: var(--accent); margin-top: 1.1rem; margin-bottom: 0.35rem; }
+    p { margin: 0.5rem 0; }
+    ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+    li { margin: 0.25rem 0; }
+    .subtitle { font-size: 0.9rem; opacity: 0.85; margin-bottom: 1.25rem; }
+
+    .theme-toggle {
+      position: fixed;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      color: var(--text);
+      font-size: 0.8rem;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    .theme-toggle:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+  <button type="button" id="themeToggle" class="theme-toggle">Light theme</button>
+  <div class="wrap">
+    <a href="/" class="back">← Main menu</a>
+    <h1>About SudoPHASE</h1>
+    <p class="subtitle">Parallel Ant Colony + Simulated Annealing — Sudoku solver, experiments, and play.</p>
+
+    <h2>User manual</h2>
+    <p>This web application lets you load Sudoku puzzles (9×9, 16×16, 25×25), play them, run the research solver with configurable parameters, create your own puzzles, and import/export puzzles as text or PDF.</p>
+
+    <h3>Main menu</h3>
+    <ul>
+      <li><strong>Game Mode</strong> — Full-screen play: choose a puzzle, enter digits, undo, clear, optional computer solve with default settings, exports.</li>
+      <li><strong>Experiment Mode</strong> — Same grid plus a side panel: puzzle library, full solver parameters, <strong>SOLVE PUZZLE</strong> / <strong>Stop</strong>, and a <strong>Download</strong> dialog (Initial/Progress × TXT/PDF).</li>
+      <li><strong>Create Puzzle</strong> — Paint clues on the board. The server verifies the puzzle is <strong>solvable within 120 seconds</strong> using <strong>default solver parameters</strong>. Only then can you save a <code>.txt</code> or jump to Game / Experiment Mode. Optional “Save locally” stores the puzzle in your browser for the library.</li>
+      <li><strong>Upload Puzzle</strong> — Page with the <strong>accepted file format</strong>; pick <strong>Game Mode</strong> or <strong>Experiment Mode</strong>, then choose a <code>.txt</code> file.</li>
+      <li><strong>About Game</strong> — This manual.</li>
+    </ul>
+
+    <h3>Exports and uploads</h3>
+    <ul>
+      <li><strong>Game Mode</strong> — In <strong>Choose puzzle</strong>, set Source to <strong>Upload .txt file</strong> and pick your file. Next to <strong>Stop</strong>, <strong>Download</strong> opens a dialog: export <strong>Initial puzzle</strong> (clues only) or <strong>Progress</strong> (initial + current grid), as <strong>.txt</strong> or <strong>.pdf</strong>.</li>
+      <li><strong>Experiment Mode</strong> — A <strong>Download</strong> button (below <strong>Stop</strong>) opens the same dialog style as Game Mode: <strong>Initial puzzle</strong> or <strong>Progress</strong>, as <strong>.txt</strong> or <strong>.pdf</strong>. Upload is available via <strong>Upload .txt</strong>.</li>
+      <li>File layout matches <code>instances/curated-dataset</code>. Lines starting with <code>#</code> are ignored when loading; extra data after the first full grid may be ignored.</li>
+    </ul>
+
+    <h2>How to play — Game Mode</h2>
+    <p>Game Mode is for solving by hand (with optional help from the solver). Typical flow:</p>
+    <ol>
+      <li>Click <strong>Choose puzzle</strong>: pick size and source (curated, <strong>Created puzzles</strong>, or <strong>Upload .txt file</strong>). For library sources, select an instance and <strong>Load</strong>. For upload, use <strong>Choose .txt file</strong>. Clues are fixed and the timer starts.</li>
+      <li>Select a cell (border highlight). Peer cells (same row, column, block) are highlighted. Type with the <strong>digit buttons</strong> — only non-fixed cells change. The app may auto-advance to the next empty cell.</li>
+      <li>Use <strong>Undo</strong> to revert the last edit. <strong>Clear</strong> resets to an empty board (same size).</li>
+      <li>Illegal duplicates show in <strong>red</strong> until fixed.</li>
+      <li><strong>Solve</strong> runs the solver on the <strong>original clue puzzle</strong> (not only your current entries). <strong>Stop</strong> cancels a running solve.</li>
+      <li>Use <strong>Download</strong> (beside <strong>Stop</strong>) to export <strong>Initial</strong> or <strong>Progress</strong> as <strong>.txt</strong> or <strong>.pdf</strong>. After a successful solve, the grid is complete—choose <strong>Progress</strong> to capture the filled board plus the initial clues.</li>
+      <li>When every cell is valid and filled, you see <strong>Puzzle solved!</strong> with your elapsed time.</li>
+    </ol>
+
+    <h2>Experiment Mode (brief)</h2>
+    <ul>
+      <li>Left panel: <strong>Source</strong> (curated / created), <strong>Size</strong>, instance list, <strong>Load selected</strong>, delete for created entries.</li>
+      <li><strong>Parameters</strong> — Timeout, ants, evaporation, SA temperatures, SA frequency (0 disables SA), cooling rate, thread count, communication settings. Evaporation and cooling must be strictly between 0 and 1 (popup if not).</li>
+      <li><strong>SOLVE PUZZLE</strong> solves the <strong>loaded clue puzzle</strong>. <strong>Stop</strong> cancels the job.</li>
+      <li><strong>Download</strong> (left panel) uses the same options dialog as Game Mode: choose <strong>Initial</strong> or <strong>Progress</strong>, and choose <strong>TXT</strong> or <strong>PDF</strong>.</li>
+      <li><strong>Upload .txt</strong> (under the grid) loads a puzzle file directly into the board.</li>
+    </ul>
+
+    <h2>Rules of Sudoku</h2>
+    <p>Fill the grid so that every row, column, and block contains each symbol exactly once. Clues are fixed. Sizes: 9×9 (digits 1–9), 16×16, 25×25 with the symbol sets used in the app.</p>
+
+    <h2>Tips</h2>
+    <ul>
+      <li>Hard instances may need a longer <strong>Timeout</strong> or more <strong>Thread Count</strong> in Experiment Mode.</li>
+      <li>Created puzzles must pass server validation — unsolvable or timeout failures are rejected.</li>
+      <li>Theme toggle (top right) is remembered per browser.</li>
+    </ul>
+  </div>
+  <script>
+    const THEME_KEY = 'sudophaseTheme';
+
+    function applyTheme(theme) {
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+
+    function initThemeToggle() {
+      const stored = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(stored);
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    }
+
+    initThemeToggle();
+  </script>
+</body>
+</html>

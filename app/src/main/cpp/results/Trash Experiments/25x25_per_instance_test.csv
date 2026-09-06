@@ -1,0 +1,4 @@
+alg,puzzle_size,f%,instance_id,instance_path,ants,subcolonies,q0,rho,bve,safreq,timeout,success_rate,time_mean,time_std,iter_mean,with_comm,without_comm
+0,25x25,40,9,,10,4,0.9,0.9,0.005,0,120.0,100.0,5.14884,0.20949,183.0,,
+0,25x25,40,10,,10,4,0.9,0.9,0.005,0,120.0,100.0,1.31572,0.48459,54.0,,
+0,25x25,40,30,,10,4,0.9,0.9,0.005,0,120.0,50.0,2.67461,0.0,105.0,,

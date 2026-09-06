@@ -1,0 +1,2 @@
+alg,puzzle_size,f%,instance_id,instance_path,ants,threads,q0,rho,bve,safreq,saAccept,saTinit,saTmin,saCooling,commEarly,commLate,commThreshold,timeout,success_rate,time_mean,time_std,iter_mean,with_comm,without_comm
+2,25x25,50,18,,10,4,0.9,0.9,0.005,75,1,1.5,0.01,0.995,100,10,200,120.0,60.0,9.47129,19.75933,641.0,2,4

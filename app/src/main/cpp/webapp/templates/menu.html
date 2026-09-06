@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SudoPHASE – Main Menu</title>
+  <style>
+    :root {
+      /* Dark theme (default) */
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --accent: #7aa2f7;
+      --border: #3b4261;
+    }
+    :root[data-theme="light"] {
+      /* Light theme */
+      --bg: #f5f7ff;
+      --surface: #ffffff;
+      --text: #1f2335;
+      --accent: #3366ff;
+      --border: #c5cee0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      background-image: url("{{ url_for('static', filename='SudoPHASE-BG.png') }}");
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center center;
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 10rem 2rem 2rem;
+    }
+    .menu {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0rem;
+      max-width: 440px;
+    }
+    .logo-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .logo-wrap img {
+      width: 460px;
+      height: 460px;
+      display: block;
+    }
+    .logo-svg {
+      width: 300px;
+      height: 300px;
+    }
+    .btn-menu {
+      width: 100%;
+      padding: 0.9rem 1.15rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      display: block;
+      transition: filter 0.15s;
+    }
+    .btn-menu:hover { filter: brightness(1.15); }
+    .btn-menu:active { filter: brightness(0.95); }
+    button.btn-menu {
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: 600;
+      letter-spacing: normal;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    a.btn-menu { font-weight: 600; }
+    .buttons { width: 100%; display: flex; flex-direction: column; gap: 0.65rem; }
+
+    .theme-toggle {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      color: var(--text);
+      font-size: 0.8rem;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+    }
+    .theme-toggle:hover {
+      filter: brightness(1.1);
+    }
+  </style>
+</head>
+<body>
+  <button type="button" id="themeToggle" class="theme-toggle">Light theme</button>
+  <div class="menu">
+    <div class="logo-wrap">
+      <img src="{{ url_for('logo') }}" alt="SudoPHASE" id="logoImg" onerror="this.style.display='none'; document.getElementById('logoFallback').style.display='block';">
+      <svg class="logo-svg" id="logoFallback" style="display:none;" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#g)" stroke="#7aa2f7" stroke-width="2"/>
+        <path d="M22 22h16v16H22zM62 22h16v16H62zM42 42h16v16H42z" stroke="#c0caf5" stroke-width="1.5" fill="none"/>
+        <text x="28" y="32" fill="#c0caf5" font-size="10" font-weight="bold">3</text>
+        <text x="68" y="32" fill="#c0caf5" font-size="10" font-weight="bold">5</text>
+        <text x="48" y="52" fill="#c0caf5" font-size="10" font-weight="bold">7</text>
+        <path d="M18 18 L82 82" stroke="#7aa2f7" stroke-width="6" stroke-linecap="round"/>
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#24283b"/><stop offset="1" stop-color="#1a1b26"/></linearGradient></defs>
+      </svg>
+    </div>
+    <nav class="buttons">
+      <a href="{{ url_for('game_page') }}" class="btn-menu">Game Mode</a>
+      <a href="{{ url_for('play_page') }}" class="btn-menu">Experiment Mode</a>
+      <a href="{{ url_for('create_page') }}" class="btn-menu">Create Puzzle</a>
+      <a href="{{ url_for('upload_page') }}" class="btn-menu">Upload Puzzle</a>
+      <a href="{{ url_for('about_page') }}" class="btn-menu">About Game</a>
+    </nav>
+  </div>
+  <script>
+    const THEME_KEY = 'sudophaseTheme';
+
+    function applyTheme(theme) {
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+
+    function initThemeToggle() {
+      const stored = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(stored);
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    }
+
+    initThemeToggle();
+  </script>
+</body>
+</html>

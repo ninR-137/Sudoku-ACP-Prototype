@@ -1,0 +1,4 @@
+alg,puzzle_size,f%,instance_id,instance_path,ants,subcolonies,q0,rho,bve,safreq,timeout,success_rate,time_mean,time_std,iter_mean,with_comm,without_comm
+0,2020_00004,,,,10,4,0.9,0.9,0.005,50,120.0,100.0,0.38523,0.95292,90.6,,
+0,2020_00021,,,,10,4,0.9,0.9,0.005,50,120.0,100.0,0.48787,0.46467,99.36,,
+0,2020_00041,,,,10,4,0.9,0.9,0.005,50,120.0,100.0,0.55758,0.58596,108.28,,

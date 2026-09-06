@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SudoPHASE – Upload Puzzle</title>
+  <style>
+    :root {
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --accent: #7aa2f7;
+      --border: #3b4261;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f7ff;
+      --surface: #ffffff;
+      --text: #1f2335;
+      --accent: #3366ff;
+      --border: #c5cee0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      padding: 1.5rem;
+      line-height: 1.55;
+      font-size: 1.05rem;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    a.back {
+      color: var(--accent);
+      font-size: 1.05rem;
+      text-decoration: none;
+      display: inline-block;
+      margin-bottom: 1rem;
+    }
+    a.back:hover { text-decoration: underline; }
+    h1 { font-size: 1.65rem; color: var(--accent); margin: 0 0 0.5rem 0; }
+    .subtitle { font-size: 1.05rem; opacity: 0.88; margin: 0 0 1.25rem 0; }
+    h2 { font-size: 1.2rem; color: var(--accent); margin: 1.25rem 0 0.5rem 0; }
+    details.format-hint {
+      max-width: 760px;
+      margin: 0 auto 1rem;
+      font-size: 1rem;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1.15rem;
+      background: var(--surface);
+    }
+    details.format-hint summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent);
+      font-size: 1.08rem;
+    }
+    details.format-hint pre {
+      font-size: 0.9rem;
+      overflow-x: auto;
+      margin: 0.65rem 0 0;
+      white-space: pre-wrap;
+    }
+    details.format-hint ul { font-size: 1rem; padding-left: 1.35rem; }
+    .row { margin: 1rem 0; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+    label.mode { display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; cursor: pointer; }
+    label.mode input { width: 1.1rem; height: 1.1rem; }
+    .btn {
+      padding: 0.75rem 1.4rem;
+      border-radius: 10px;
+      border: none;
+      background: var(--accent);
+      color: var(--bg);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 1.1rem;
+    }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { filter: brightness(1.08); }
+    input[type="file"] { font-size: 1.05rem; max-width: 100%; }
+    .theme-toggle {
+      position: fixed;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.45rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      color: var(--text);
+      font-size: 0.95rem;
+      cursor: pointer;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <button type="button" id="themeToggle" class="theme-toggle">Light theme</button>
+  <div class="wrap">
+    <a href="/" class="back">← Main menu</a>
+    <h1>Upload puzzle</h1>
+    <p class="subtitle">Load a puzzle from a <code>.txt</code> file (same layout as <code>instances/curated-dataset</code>), then open it in Game Mode or Experiment Mode.</p>
+
+    <details class="format-hint">
+      <summary>Accepted puzzle file format (.txt)</summary>
+      <p style="margin:0.5rem 0;">Plain text, UTF-8. Lines that start with <code>#</code> are treated as comments and ignored (useful if you saved a progress file that contains two blocks). A contiguous run of values after the header must contain at least <em>N² × N²</em> integers (<code>N = order²</code>); extra numbers from a second block in the same file are not used.</p>
+      <pre>&lt;order&gt;          ← 3 = 9×9, 4 = 16×16, 5 = 25×25
+&lt;idum&gt;           ← integer (often 0), ignored by the web app
+&lt;n² rows of n² integers&gt;   ← -1 means empty cell
+
+Example (order 3, partial):
+3
+0
+-1 -1  5 -1 -1 -1 -1 -1 -1
+8 -1 -1 -1 -1 -1 -1  2 -1
+...</pre>
+      <p style="margin:0.5rem 0 0.25rem;"><strong>Value encoding</strong> (how numbers map to digits in the grid):</p>
+      <ul style="margin:0.25rem 0 0.25rem;">
+        <li><strong>9×9</strong>: use <code>1</code>–<code>9</code> for clues, <code>-1</code> for blanks.</li>
+        <li><strong>16×16</strong>: <code>1</code>–<code>10</code> for symbols <code>0</code>–<code>9</code>, <code>11</code>–<code>16</code> for <code>a</code>–<code>f</code>; <code>-1</code> empty.</li>
+        <li><strong>25×25</strong>: <code>1</code>–<code>25</code> map to <code>a</code>–<code>y</code>; <code>-1</code> empty.</li>
+      </ul>
+    </details>
+
+    <h2>Open in</h2>
+    <div class="row">
+      <label class="mode"><input type="radio" name="mode" value="game" checked> Game Mode</label>
+      <label class="mode"><input type="radio" name="mode" value="experiment"> Experiment Mode</label>
+    </div>
+    <div class="row">
+      <input type="file" id="fileInput" accept=".txt,text/plain">
+      <button type="button" class="btn" id="loadBtn" disabled>Load puzzle</button>
+    </div>
+  </div>
+  <script>
+    const THEME_KEY = 'sudophaseTheme';
+    function applyTheme(theme) {
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+    function initThemeToggle() {
+      applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.addEventListener('click', () => {
+        const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = cur === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    }
+    initThemeToggle();
+
+    function parseInstanceText(text) {
+      const rawLines = text.split(/\r?\n/).map(function(l) { return l.trim(); });
+      const lines = rawLines.filter(function(l) {
+        if (!l.length) return false;
+        if (l.charAt(0) === '#') return false;
+        return true;
+      });
+      if (lines.length < 2) throw new Error('Invalid file: need at least order and idum lines after removing comments/empties.');
+      const order = parseInt(lines[0], 10);
+      if (![3, 4, 5].includes(order)) throw new Error('Unsupported order on line 1; use 3, 4, or 5.');
+      const numCells = Math.pow(order, 4);
+      const values = [];
+      for (let i = 2; i < lines.length; i++) {
+        const parts = lines[i].split(/\s+/);
+        for (let j = 0; j < parts.length; j++) {
+          const n = parseInt(parts[j], 10);
+          if (!Number.isNaN(n)) values.push(n);
+        }
+      }
+      if (values.length < numCells) throw new Error('Not enough grid values (need ' + numCells + ').');
+      const slice = values.slice(0, numCells);
+      const out = [];
+      for (let k = 0; k < slice.length; k++) {
+        const v = slice[k];
+        if (v === -1) { out.push('.'); continue; }
+        if (order === 3) {
+          out.push((v >= 1 && v <= 9) ? String.fromCharCode(48 + v) : '.');
+        } else if (order === 4) {
+          if (v >= 1 && v <= 10) out.push(String.fromCharCode(48 + v - 1));
+          else if (v >= 11 && v <= 16) out.push(String.fromCharCode(97 + v - 11));
+          else out.push('.');
+        } else {
+          out.push((v >= 1 && v <= 25) ? String.fromCharCode(97 + v - 1) : '.');
+        }
+      }
+      return { order: order, puzzle: out.join('') };
+    }
+
+    const fileInput = document.getElementById('fileInput');
+    const loadBtn = document.getElementById('loadBtn');
+    fileInput.addEventListener('change', function() {
+      loadBtn.disabled = !fileInput.files || !fileInput.files.length;
+    });
+    loadBtn.addEventListener('click', function() {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function() {
+        try {
+          const parsed = parseInstanceText(String(reader.result || ''));
+          sessionStorage.setItem('createdPuzzle', JSON.stringify({
+            order: parsed.order,
+            puzzle: parsed.puzzle,
+            name: file.name.replace(/\.txt$/i, '') || 'Uploaded puzzle'
+          }));
+          const mode = (document.querySelector('input[name="mode"]:checked') || {}).value || 'game';
+          window.location.href = mode === 'experiment' ? '/play' : '/game';
+        } catch (err) {
+          alert(err.message || 'Failed to parse file.');
+        }
+      };
+      reader.onerror = function() { alert('Could not read file.'); };
+      reader.readAsText(file, 'utf-8');
+    });
+  </script>
+</body>
+</html>

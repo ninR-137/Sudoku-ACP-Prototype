@@ -1,0 +1,3 @@
+Although the ablation experiments were originally designed to evaluate five values for each parameter, one of these values corresponded to the default configuration. Therefore, only the remaining four parameter values required additional testing, while the results obtained from the default-value runs were reused for comparison.
+
+The experimentation was run on the hardest puzzle instance for each puzzle size across 100 runs. 

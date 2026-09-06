@@ -1,0 +1,2 @@
+alg,puzzle_size,f%,instance_id,instance_path,ants,threads,q0,rho,bve,xi,safreq,saAccept,saTinit,saTmin,saCooling,commEarly,commLate,commThreshold,timeout,success_rate,time_mean,time_std,iter_mean,with_comm,without_comm
+0,2020_00997,,,instances\9x9-database\2020_00997.txt,10,4,0.9,0.9,0.005,0.01,0,0,1.5,0.01,0.995,,,,5.0,100.0,0.13653,0.10048,243.9,,

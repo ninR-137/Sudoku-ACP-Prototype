@@ -1,0 +1,1 @@
+This experiment was run using the best configuration parameter values but with disabled communication.

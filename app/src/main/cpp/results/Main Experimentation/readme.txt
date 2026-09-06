@@ -1,0 +1,1 @@
+For the main experiment, we compare four solver configurations using three performance metrics, across 10 puzzle instances per size, with 5 runs per instance for reliable evaluation.

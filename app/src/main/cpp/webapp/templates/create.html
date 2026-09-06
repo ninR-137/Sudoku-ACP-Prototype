@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SudoPHASE – Create Puzzle</title>
+  <style>
+    :root {
+      /* Dark theme (default) */
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --accent: #7aa2f7;
+      --success: #9ece6a;
+      --border: #3b4261;
+      --cell-border: #414868;
+      --block-border: #7aa2f7;
+    }
+    :root[data-theme="light"] {
+      /* Light theme */
+      --bg: #f5f7ff;
+      --surface: #ffffff;
+      --text: #1f2335;
+      --accent: #3366ff;
+      --success: #2e7d32;
+      --border: #c5cee0;
+      --cell-border: #d0d7ea;
+      --block-border: #3366ff;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1.5rem; font-size: 1.05rem; }
+    .back { color: var(--accent); font-size: 1.05rem; text-decoration: none; align-self: flex-start; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.65rem; color: var(--accent); margin-bottom: 0.5rem; }
+    .step { margin-bottom: 1.5rem; text-align: center; }
+    .step > p { font-size: 1.1rem; }
+    .size-btns { display: flex; gap: 0.85rem; justify-content: center; flex-wrap: wrap; }
+    .size-btns button { padding: 0.75rem 1.45rem; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); color: var(--text); cursor: pointer; font-weight: 600; font-size: 1.1rem; }
+    .size-btns button:hover, .size-btns button.selected {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .grid-wrap {
+      padding: 0.5rem;
+      background: var(--surface);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin: 1rem auto;
+      width: fit-content;
+      max-width: 100%;
+      overflow-x: auto;
+      box-sizing: border-box;
+    }
+    .sudoku-grid { display: grid; gap: 0; border: 4px solid var(--block-border); width: max-content; max-width: 100%; }
+    .sudoku-grid input { border: 1px solid var(--cell-border); background: var(--bg); color: var(--text); text-align: center; padding: 0; font-size: clamp(1.25rem, 3vmin, 1.6rem); }
+    .sudoku-grid input.block-right { border-right-width: 3px; border-right-color: var(--block-border); }
+    .sudoku-grid input.block-bottom { border-bottom-width: 3px; border-bottom-color: var(--block-border); }
+    .number-pad { display: grid; grid-template-columns: repeat(auto-fit, minmax(2.85rem, 1fr)); gap: 0.5rem; max-width: 400px; margin: 1rem auto; }
+    .number-pad button { padding: 0.5rem; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-weight: 600; cursor: pointer; font-size: 1.15rem; }
+    .number-pad button:hover { border-color: var(--accent); }
+    .actions {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+    .actions button, .actions a { padding: 0.75rem 1.35rem; border-radius: 10px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; border: none; font-size: 1.1rem; }
+    .actions label.save-local { font-size: 1.05rem; }
+    .actions input#puzzleName { font-size: 1.05rem; padding: 0.65rem 0.9rem; min-width: 260px; }
+    .btn-play { background: var(--accent); color: var(--bg); }
+    .btn-play:hover { filter: brightness(1.1); }
+    .btn-play:disabled { opacity: 0.6; cursor: not-allowed; }
+    .create-area { display: none; }
+    .create-area.visible {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 100%;
+    }
+    details.format-hint {
+      max-width: 680px;
+      margin: 0 auto 1rem;
+      font-size: 1rem;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1.15rem;
+      background: var(--surface);
+    }
+    details.format-hint summary { cursor: pointer; font-weight: 600; color: var(--accent); font-size: 1.08rem; }
+    details.format-hint pre {
+      font-size: 0.9rem;
+      overflow-x: auto;
+      margin: 0.65rem 0 0;
+      white-space: pre-wrap;
+    }
+    .theme-toggle {
+      position: fixed;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.45rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      color: var(--text);
+      font-size: 0.95rem;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    .theme-toggle:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+  <button type="button" id="themeToggle" class="theme-toggle">Light theme</button>
+  <a href="/" class="back">← Main menu</a>
+  <h1>Create Puzzle</h1>
+  <div class="step">
+    <p style="margin-bottom:0.65rem;">Choose size:</p>
+    <div class="size-btns">
+      <button type="button" data-size="9×9" data-order="3">9×9</button>
+      <button type="button" data-size="16×16" data-order="4">16×16</button>
+      <button type="button" data-size="25×25" data-order="5">25×25</button>
+    </div>
+  </div>
+  <div class="create-area" id="createArea">
+    <details class="format-hint">
+      <summary>Accepted puzzle file format (.txt)</summary>
+      <p style="margin:0.5rem 0;">Matches <code>instances/curated-dataset</code>: line 1 = order (3 / 4 / 5), line 2 = id (e.g. 0), then <em>n²</em> rows of <em>n²</em> integers, <code>-1</code> = empty. Lines starting with <code>#</code> are ignored.</p>
+      <pre>3
+0
+-1 -1  5 -1 -1 -1 -1 -1 -1
+8 -1 -1 -1 -1 -1 -1  2 -1
+...</pre>
+      <p style="margin:0.35rem 0 0;">9×9: values 1–9. 16×16: 1–10 → symbols 0–9; 11–16 → a–f. 25×25: 1–25 → a–y. You can <strong>Save as .txt</strong> after validation.</p>
+    </details>
+    <p class="subtitle" id="createSubtitle" style="font-size:1.05rem;opacity:0.9;margin-bottom:0.65rem;max-width:42rem;">Fill in the clues (empty cells will be for the player to solve). The server checks the puzzle is solvable (default solver settings, 120 s) before export or play.</p>
+    <p id="validateMsg" style="display:none;font-size:1.05rem;max-width:36rem;margin:0 auto 0.85rem;text-align:center;"></p>
+    <div class="grid-wrap">
+      <div class="sudoku-grid" id="grid"></div>
+    </div>
+    <div class="number-pad" id="numberPad"></div>
+    <div class="actions">
+      <label class="save-local" style="display:flex;align-items:center;gap:0.55rem;opacity:0.95;flex:1 1 100%;justify-content:center;">
+        <input type="checkbox" id="saveLocal" checked style="width:1.1rem;height:1.1rem;">
+        Save locally when playing (browser only)
+      </label>
+      <input type="text" id="puzzleName" placeholder="Puzzle name (optional)" style="border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+      <button type="button" class="btn-play" id="saveTxtBtn">Save as .txt</button>
+      <button type="button" class="btn-play" id="playGameBtn">Play in Game Mode</button>
+      <button type="button" class="btn-play" id="playExpBtn">Play in Experiment Mode</button>
+    </div>
+  </div>
+
+  <script>
+    const THEME_KEY = 'sudophaseTheme';
+
+    function applyTheme(theme) {
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+
+    function initThemeToggle() {
+      const stored = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(stored);
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    }
+
+    initThemeToggle();
+
+    const gridEl = document.getElementById('grid');
+    const numberPad = document.getElementById('numberPad');
+    const createArea = document.getElementById('createArea');
+    const saveTxtBtn = document.getElementById('saveTxtBtn');
+    const playGameBtn = document.getElementById('playGameBtn');
+    const playExpBtn = document.getElementById('playExpBtn');
+    const validateMsg = document.getElementById('validateMsg');
+    const sizeBtns = document.querySelectorAll('.size-btns button');
+    const saveLocalEl = document.getElementById('saveLocal');
+    const puzzleNameEl = document.getElementById('puzzleName');
+
+    const SIZES = { '9×9': 3, '16×16': 4, '25×25': 5 };
+    const CELLS = { 3: 81, 4: 256, 5: 625 };
+    const MAX_VAL = { 3: 9, 4: 16, 5: 25 };
+    let currentOrder = 3;
+    let currentSizeLabel = '9×9';
+    let lastFocusedInput = null;
+    const CREATED_KEY = 'sudophaseCreatedPuzzles';
+
+    function safeJsonParse(text, fallback) {
+      try { return JSON.parse(text); } catch (_) { return fallback; }
+    }
+
+    function uuidv4() {
+      // Browser-safe UUID generation
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      const buf = new Uint8Array(16);
+      (window.crypto || { getRandomValues: (b) => { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); } }).getRandomValues(buf);
+      // RFC4122 v4
+      buf[6] = (buf[6] & 0x0f) | 0x40;
+      buf[8] = (buf[8] & 0x3f) | 0x80;
+      const hex = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    }
+
+    function saveCreatedPuzzleLocally(entry) {
+      const raw = localStorage.getItem(CREATED_KEY);
+      const list = Array.isArray(raw ? safeJsonParse(raw, []) : []) ? safeJsonParse(raw || '[]', []) : [];
+      list.unshift(entry);
+      // keep last 200 to avoid unbounded growth
+      const capped = list.slice(0, 200);
+      localStorage.setItem(CREATED_KEY, JSON.stringify(capped));
+    }
+
+    function order4DisplayToChar(v) {
+      const n = parseInt(v, 10);
+      if (n >= 1 && n <= 10) return String.fromCharCode(48 + n - 1);
+      if (n >= 11 && n <= 16) return String.fromCharCode(97 + n - 11);
+      return '.';
+    }
+    function order5DisplayToChar(v) {
+      const n = parseInt(v, 10);
+      if (n >= 1 && n <= 25) return String.fromCharCode(97 + n - 1);
+      return '.';
+    }
+    function order4CharToDisplay(ch) {
+      if (ch === '.') return ''; if (ch >= '0' && ch <= '9') return String(ch.charCodeAt(0) - 48 + 1);
+      if (ch >= 'a' && ch <= 'f') return String(ch.charCodeAt(0) - 97 + 11); return '';
+    }
+    function order5CharToDisplay(ch) {
+      if (ch === '.') return ''; if (ch >= 'a' && ch <= 'y') return String(ch.charCodeAt(0) - 97 + 1); return '';
+    }
+
+    function gridToPuzzle() {
+      const inputs = gridEl.querySelectorAll('input');
+      const order = currentOrder;
+      const n = order * order;
+      const out = [];
+      for (let i = 0; i < inputs.length; i++) {
+        const v = inputs[i].value.trim();
+        if (!v) { out.push('.'); continue; }
+        if (order === 3) out.push(/^[1-9]$/.test(v) ? v : '.');
+        else if (order === 4) out.push(order4DisplayToChar(v));
+        else out.push(order5DisplayToChar(v));
+      }
+      return out.join('').slice(0, n * n);
+    }
+
+    function puzzleToGrid(puzzle, order) {
+      const inputs = gridEl.querySelectorAll('input');
+      const n = order * order;
+      const len = n * n;
+      const str = String(puzzle).padEnd(len, '.').slice(0, len);
+      for (let i = 0; i < inputs.length && i < len; i++) {
+        const ch = str[i];
+        let disp = '';
+        if (order === 3) disp = ch !== '.' && /[1-9]/.test(ch) ? ch : '';
+        else if (order === 4) disp = order4CharToDisplay(ch);
+        else disp = order5CharToDisplay(ch);
+        inputs[i].value = disp;
+      }
+    }
+
+    function renderNumberPad(order) {
+      numberPad.innerHTML = '';
+      const maxVal = MAX_VAL[order];
+      for (let v = 1; v <= maxVal; v++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = String(v);
+        btn.addEventListener('click', () => {
+          let target = lastFocusedInput || gridEl.querySelector('input');
+          if (target) { target.value = String(v); target.focus(); }
+        });
+        numberPad.appendChild(btn);
+      }
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = 'Del';
+      delBtn.addEventListener('click', () => {
+        const target = lastFocusedInput || gridEl.querySelector('input');
+        if (target) { target.value = ''; target.focus(); }
+      });
+      numberPad.appendChild(delBtn);
+    }
+
+    function createGrid(order) {
+      const n = order * order;
+      const cells = n * n;
+      gridEl.innerHTML = '';
+      const maxVal = MAX_VAL[order];
+      const cellSize =
+        order === 3 ? 'clamp(3.35rem, 6.8vmin, 4.85rem)' : order === 4 ? 'clamp(2.55rem, 4.4vmin, 3.5rem)' : 'clamp(1.95rem, 3.1vmin, 2.45rem)';
+      const fontSize = order === 3 ? '1.2rem' : order === 4 ? '0.9rem' : '0.7rem';
+      gridEl.style.gridTemplateColumns = `repeat(${n}, ${cellSize})`;
+      gridEl.style.gridTemplateRows = `repeat(${n}, ${cellSize})`;
+      for (let i = 0; i < cells; i++) {
+        const row = Math.floor(i / n);
+        const col = i % n;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.inputMode = 'numeric';
+        input.maxLength = order === 3 ? 1 : 2;
+        input.dataset.index = i;
+        input.style.fontSize = fontSize;
+        if ((col + 1) % order === 0 && col !== n - 1) input.classList.add('block-right');
+        if ((row + 1) % order === 0 && row !== n - 1) input.classList.add('block-bottom');
+        input.addEventListener('focus', () => { lastFocusedInput = input; });
+        input.addEventListener('click', () => { lastFocusedInput = input; });
+        input.addEventListener('input', function() {
+          let v = this.value.replace(/\D/g, '');
+          if (maxVal <= 9) v = v.slice(0, 1);
+          else { const num = parseInt(v, 10); if (num > maxVal) v = String(maxVal); else if (v.length > 2) v = v.slice(0, 2); }
+          this.value = v;
+        });
+        gridEl.appendChild(input);
+      }
+      currentOrder = order;
+      currentSizeLabel = order === 3 ? '9×9' : order === 4 ? '16×16' : '25×25';
+      renderNumberPad(order);
+    }
+
+    sizeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        sizeBtns.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const order = parseInt(btn.dataset.order, 10);
+        createGrid(order);
+        const len = CELLS[order];
+        puzzleToGrid('.'.repeat(len), order);
+        createArea.classList.add('visible');
+      });
+    });
+
+    function sanitizeDownloadBase(name, fallback) {
+      let s = String(name || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+      return s || fallback;
+    }
+
+    function setBusy(busy, message) {
+      [saveTxtBtn, playGameBtn, playExpBtn].forEach(b => { if (b) b.disabled = busy; });
+      if (validateMsg) {
+        if (message) {
+          validateMsg.style.display = 'block';
+          validateMsg.textContent = message;
+        } else {
+          validateMsg.style.display = 'none';
+          validateMsg.textContent = '';
+        }
+      }
+    }
+
+    async function validateCreatedPuzzle() {
+      const puzzle = gridToPuzzle();
+      const order = currentOrder;
+      const r = await fetch('/api/validate-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ puzzle, order, timeout: 180 })
+      });
+      let data = {};
+      try { data = await r.json(); } catch (_) {}
+      if (!r.ok) {
+        return { ok: false, error: data.error || ('Request failed (' + r.status + ')') };
+      }
+      if (!data.valid) {
+        return { ok: false, error: data.error || 'Puzzle could not be solved in time or is invalid.' };
+      }
+      return { ok: true, puzzle, order };
+    }
+
+    saveTxtBtn.addEventListener('click', async () => {
+      setBusy(true, 'Checking puzzle with the solver…');
+      try {
+        const v = await validateCreatedPuzzle();
+        if (!v.ok) {
+          setBusy(false, '');
+          alert(v.error || 'Validation failed.');
+          return;
+        }
+        const name = (puzzleNameEl && puzzleNameEl.value ? puzzleNameEl.value.trim() : '') || 'Created puzzle';
+        const def = sanitizeDownloadBase(name.replace(/\s+/g, '_'), 'puzzle');
+        const base = sanitizeDownloadBase(prompt('Name your puzzle file:', def), def);
+        const filename = base.toLowerCase().endsWith('.txt') ? base : base + '.txt';
+        const r = await fetch('/api/export/instance-txt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: v.order, puzzle: v.puzzle })
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          alert(d.error || 'Export failed');
+          return;
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert(e.message || 'Error');
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    function playRedirect(mode) {
+      const v = window.__lastValidate;
+      if (!v || !v.ok) return;
+      const { order, puzzle } = v;
+      const sizeKey = order === 3 ? '9x9' : order === 4 ? '16x16' : '25x25';
+      const name = (puzzleNameEl && puzzleNameEl.value ? puzzleNameEl.value.trim() : '') || 'Created puzzle';
+      sessionStorage.setItem('createdPuzzle', JSON.stringify({ order, puzzle, name }));
+      if (saveLocalEl && saveLocalEl.checked) {
+        saveCreatedPuzzleLocally({
+          id: uuidv4(),
+          name,
+          order,
+          puzzle,
+          createdAt: Date.now()
+        });
+      }
+      window.location.href = (mode === 'experiment' ? '/play?size=' : '/game?size=') + sizeKey;
+    }
+
+    playGameBtn.addEventListener('click', async () => {
+      setBusy(true, 'Checking puzzle with the solver…');
+      window.__lastValidate = null;
+      try {
+        const v = await validateCreatedPuzzle();
+        if (!v.ok) {
+          alert(v.error || 'This puzzle cannot be created — it must be solvable within the time limit.');
+          return;
+        }
+        window.__lastValidate = v;
+        playRedirect('game');
+      } catch (e) {
+        alert(e.message || 'Error');
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    playExpBtn.addEventListener('click', async () => {
+      setBusy(true, 'Checking puzzle with the solver…');
+      window.__lastValidate = null;
+      try {
+        const v = await validateCreatedPuzzle();
+        if (!v.ok) {
+          alert(v.error || 'This puzzle cannot be created — it must be solvable within the time limit.');
+          return;
+        }
+        window.__lastValidate = v;
+        playRedirect('experiment');
+      } catch (e) {
+        alert(e.message || 'Error');
+      } finally {
+        setBusy(false);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SudoPHASE</title>
+  <style>
+    :root {
+      /* Dark theme (default) */
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --accent: #7aa2f7;
+      --success: #9ece6a;
+      --border: #3b4261;
+      --cell-border: #414868;
+      --block-border: #7aa2f7;
+    }
+    :root[data-theme="light"] {
+      /* Light theme */
+      --bg: #F7F9FC;
+      --surface: #ffffff;
+      --text: #1f2335;
+      --accent: #3366ff;
+      --success: #2e7d32;
+      --border: #c5cee0;
+      --cell-border: #d0d7ea;
+      --block-border: #363942;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: row;
+      padding: 1rem;
+      gap: 1rem;
+    }
+    .library-panel {
+      flex-shrink: 0;
+      width: 260px;
+      padding: 0.75rem;
+      background: var(--surface);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .library-panel h2 { font-size: 1rem; margin: 0 0 0.25rem 0; color: var(--accent); }
+    .library-panel label { font-size: 0.85rem; }
+    .library-panel select { width: 100%; padding: 0.35rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+    .library-list {
+      flex: 0 0 auto;
+      height: 340px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      list-style: none;
+      margin: 0;
+      padding: 0.25rem;
+      font-size: 0.8rem;
+    }
+    .library-list li { padding: 0.25rem 0.4rem; cursor: pointer; border-radius: 3px; }
+    .library-list li:hover { background: var(--surface); }
+    .library-list li.selected { background: var(--accent); color: var(--bg); }
+    .params-container { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem; }
+    .params-header { font-size: 1rem; margin: 0 0 0.25rem 0; color: var(--accent); }
+    .params-container label { font-size: 0.85rem; }
+    .params-container input[type="number"] { width: 4rem; padding: 0.35rem; margin-left: 0.25rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+    .params-container .btn-solve { width: 100%; margin-top: 0.5rem; padding: 0.5rem 1rem; }
+    .main-area { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; position: relative; }
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--accent); }
+    .subtitle { font-size: 0.85rem; opacity: 0.8; margin-bottom: 0.75rem; }
+    .grid-wrap {
+      padding: 0.5rem;
+      background: var(--surface);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      max-width: 100%;
+      overflow: auto; /* allow scrolling on small screens (e.g. 25×25) */
+    }
+    .pad-wrap { margin-top: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; max-width: 340px; }
+    .action-buttons { display: flex; gap: 1rem; justify-content: center; }
+    .action-btn {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem;
+      padding: 0.6rem 1.25rem; border-radius: 12px; background: transparent;
+      border: 1px solid rgba(192, 202, 245, 0.5); color: var(--text);
+      font-size: 0.85rem; font-weight: 600; cursor: pointer; min-width: 5rem;
+    }
+    .action-btn:hover { border-color: var(--accent); background: rgba(122, 162, 247, 0.1); }
+    .action-btn .action-btn-icon { width: 1.5rem; height: 1.5rem; display: block; }
+    .digit-rows { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+    .digit-row {
+      display: flex; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 0.4rem;
+    }
+    .digit-btn {
+      width: 2.5rem; height: 2.5rem; padding: 0; aspect-ratio: 1;
+      border-radius: 8px; background: transparent;
+      border: 1px solid rgba(192, 202, 245, 0.5); color: var(--text);
+      font-weight: 600; font-size: 1rem; cursor: pointer; flex-shrink: 0;
+    }
+    .digit-btn:hover { border-color: var(--accent); background: rgba(122, 162, 247, 0.1); }
+    .sudoku-grid input.selected-cell {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .sudoku-grid {
+      display: grid;
+      gap: 0;
+      border: 4px solid var(--block-border);
+    }
+    .sudoku-grid input {
+      border: 1px solid var(--cell-border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: clamp(1.2rem, 3vmin, 1.55rem);
+      text-align: center;
+      padding: 0;
+    }
+    .sudoku-grid input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+    .sudoku-grid input.fixed { font-weight: bold; color: var(--accent); background: var(--surface); }
+    .sudoku-grid input.filled { color: var(--success); background: var(--surface); }
+    /* In light theme:
+       - cell background: #ffffff
+       - fixed clues: digit color #1e2022
+       - user-filled: digit color #6484c1
+       Peer / selected override below. */
+    :root[data-theme="light"] .sudoku-grid input {
+      background: #ffffff;
+    }
+    :root[data-theme="light"] .sudoku-grid input.fixed {
+      background: #ffffff;
+      color: #1e2022;
+    }
+    :root[data-theme="light"] .sudoku-grid input.filled {
+      background: #ffffff;
+      color: #6484c1;
+    }
+    /* Base peer highlighting (dark theme + fallback) */
+    .sudoku-grid input.peer-highlight {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .sudoku-grid input.peer-highlight.fixed,
+    .sudoku-grid input.peer-highlight.filled {
+      background: rgba(255, 255, 255, 0.18);
+    }
+    /* Peer highlight and selected cell (light theme) */
+    :root[data-theme="light"] .sudoku-grid input.peer-highlight {
+      background: #e3ecf3;
+    }
+    :root[data-theme="light"] .sudoku-grid input.peer-highlight.fixed,
+    :root[data-theme="light"] .sudoku-grid input.peer-highlight.filled {
+      background: #e3ecf3;
+    }
+    :root[data-theme="light"] .sudoku-grid input.selected-cell,
+    :root[data-theme="light"] .sudoku-grid input.selected-cell:focus {
+      background: #b1defd;
+    }
+    /* Conflicted cells stay red and override any peer/background coloring */
+    .sudoku-grid input.conflict,
+    .sudoku-grid input.peer-highlight.conflict {
+      background: #ff4d4f;
+      color: #ffffff;
+    }
+    /* In light theme, explicitly override high-specificity peer rules for conflicts */
+    :root[data-theme="light"] .sudoku-grid input.conflict,
+    :root[data-theme="light"] .sudoku-grid input.peer-highlight.conflict {
+      background: #ff4d4f;
+      color: #ffffff;
+    }
+    /* Block boundaries: thicker, different color (3×3, 4×4, or 5×5 sub-grids) */
+    .sudoku-grid input.block-right { border-right-width: 3px; border-right-color: var(--block-border); }
+    .sudoku-grid input.block-bottom { border-bottom-width: 3px; border-bottom-color: var(--block-border); }
+    .controls { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: center; }
+    .controls label { font-size: 0.9rem; }
+    .controls input[type="number"] { width: 4rem; padding: 0.35rem; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+    button { padding: 0.5rem 1.25rem; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.95rem; }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .result { margin-top: 1rem; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); min-width: 280px; max-width: 100%; }
+    .result.error { border-color: #f7768e; }
+    .result .time { color: var(--success); font-weight: 600; }
+    .result .meta { font-size: 0.85rem; opacity: 0.9; margin-top: 0.5rem; }
+    .download-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 60;
+    }
+    .download-modal {
+      width: min(640px, 96vw);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.35rem;
+    }
+    .download-modal h3 {
+      margin: 0 0 0.75rem 0;
+      color: var(--accent);
+      font-size: 1.65rem;
+    }
+    .download-modal fieldset { border: none; margin: 0 0 1.1rem 0; padding: 0; }
+    .download-modal legend {
+      font-size: 1.2rem;
+      margin-bottom: 0.55rem;
+      opacity: 0.95;
+      font-weight: 600;
+    }
+    .download-modal label {
+      display: block;
+      margin: 0.5rem 0;
+      font-size: 1.2rem;
+      line-height: 1.45;
+      cursor: pointer;
+    }
+    .download-modal label input {
+      margin-right: 0.55rem;
+      width: 1.1rem;
+      height: 1.1rem;
+      vertical-align: middle;
+    }
+    .download-modal .actions { display: flex; justify-content: flex-end; gap: 0.65rem; margin-top: 1rem; }
+    .download-modal .actions button {
+      padding: 0.55rem 1.2rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .download-modal .actions button.primary {
+      background: var(--accent);
+      border-color: transparent;
+      color: var(--bg);
+    }
+    .loading { opacity: 0.7; }
+
+    .cell-tooltip {
+      position: fixed;
+      z-index: 20;
+      padding: 0.55rem 1.1rem;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #111827;
+      font-size: 0.9rem;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -135%);
+      transition: opacity 0.15s ease;
+      white-space: nowrap;
+    }
+    .cell-tooltip.visible {
+      opacity: 1;
+    }
+    .cell-tooltip::after {
+      content: "";
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-width: 6px 6px 0 6px;
+      border-style: solid;
+      border-color: #ffffff transparent transparent transparent;
+    }
+    /* In light theme, keep tooltip in accent color to stand out on white UI */
+    :root[data-theme="light"] .cell-tooltip {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    :root[data-theme="light"] .cell-tooltip::after {
+      border-color: var(--accent) transparent transparent transparent;
+    }
+
+    .theme-toggle {
+      position: fixed;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.15);
+      color: var(--text);
+      font-size: 0.8rem;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    .theme-toggle:hover { filter: brightness(1.1); }
+
+    /* ===== Responsive layout for tablets & phones ===== */
+    @media (max-width: 900px) {
+      body {
+        flex-direction: column;
+        padding: 0.5rem;
+        align-items: stretch;
+      }
+
+      .library-panel {
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto;
+        order: 2;
+      }
+
+      .main-area {
+        width: 100%;
+        order: 1;
+      }
+
+      .grid-wrap {
+        max-width: min(95vw, 480px);
+      }
+
+      .pad-wrap {
+        width: 100%;
+        max-width: 480px;
+      }
+
+      .digit-row {
+        flex-wrap: wrap;
+      }
+
+      .digit-btn {
+        width: 2.4rem;
+        height: 2.4rem;
+      }
+
+      .theme-toggle {
+        top: 0.5rem;
+        right: 0.5rem;
+      }
+    }
+
+    /* Extra-small phones */
+    @media (max-width: 480px) {
+      body {
+        padding: 0.25rem;
+      }
+
+      h1 {
+        font-size: 1.2rem;
+      }
+
+      .library-panel {
+        padding: 0.5rem;
+      }
+
+      .sudoku-grid input {
+        font-size: 0.9rem;
+      }
+
+      .action-btn {
+        padding: 0.5rem 0.75rem;
+        min-width: 0;
+      }
+
+      button {
+        font-size: 0.85rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button type="button" id="themeToggle" class="theme-toggle">Light theme</button>
+  <aside class="library-panel">
+    <h2>Puzzle library</h2>
+    <p style="font-size:0.8rem;margin:0 0 0.5rem 0;opacity:0.9;" id="libraryHint">instances/original database</p>
+    <label>Source:</label>
+    <select id="sourceSelect">
+      <option value="curated">Curated dataset</option>
+      <option value="created">Created puzzles</option>
+      <option value="upload">Upload .txt file</option>
+    </select>
+    <label>Size:</label>
+    <select id="sizeSelect">
+      <option value="9×9">9×9</option>
+      <option value="16×16">16×16</option>
+      <option value="25×25">25×25</option>
+    </select>
+    <label>Instances:</label>
+    <ul class="library-list" id="libraryList"></ul>
+    <button type="button" id="loadBtn">Load selected</button>
+    <button type="button" id="deleteCreatedBtn" style="display:none;background:transparent;border:1px solid var(--border);color:var(--text);margin-top:0.4rem;">Delete selected</button>
+    <div class="params-container" style="overflow-y:auto; padding-right:0.25rem;">
+      <h2 class="params-header" style="font-size: 1.1rem; margin-bottom: 0.5rem;">Parameters</h2>
+      <h2 class="params-header">General</h2>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Timeout (s): <input type="number" id="timeout" value="180" min="5" max="600" style="width: 4.5rem; text-align:right;"></label>
+      
+      <h2 class="params-header" style="margin-top:0.5rem; font-size:0.95rem;">Ant Colony System</h2>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Number of Ants: <input type="number" id="ants" value="25" min="1" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Evap. Rate: <input type="number" id="evap" value="0.0075" min="0.001" max="0.999" step="0.0001" style="width: 4.5rem; text-align:right;"></label>
+
+      <h2 class="params-header" style="margin-top:0.5rem; font-size:0.95rem;">Simulated Annealing</h2>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Initial Temp: <input type="number" id="saTinit" value="5.75" step="0.05" min="0.1" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Stopping Temp: <input type="number" id="saTmin" value="0.01" step="0.01" min="0.0001" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Frequency: <input type="number" id="safreq" value="25" min="0" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Cooling Rate: <input type="number" id="saCooling" value="0.995" min="0.001" max="0.999" step="0.001" style="width: 4.5rem; text-align:right;"></label>
+
+      <h2 class="params-header" style="margin-top:0.5rem; font-size:0.95rem;">Multithreaded</h2>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Thread Count: <input type="number" id="threads" value="4" min="1" max="32" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Comm. Threshold: <input type="number" id="commThreshold" value="100" min="1" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Early Comm.: <input type="number" id="commEarly" value="60" min="1" style="width: 4.5rem; text-align:right;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Late Comm.: <input type="number" id="commLate" value="25" min="1" style="width: 4.5rem; text-align:right;"></label>
+
+      <button type="button" id="solveBtn" class="btn-solve">SOLVE PUZZLE</button>
+      <button type="button" id="stopBtn" style="width:100%;margin-top:0.35rem;padding:0.4rem 1rem;background:#f7768e;color:#111827;border:1px solid transparent;" disabled>Stop</button>
+      <button type="button" id="downloadBtn" style="width:100%;margin-top:0.35rem;padding:0.4rem 1rem;background:var(--surface);color:var(--text);border:1px solid var(--border);">Download</button>
+    </div>
+  </aside>
+  <main class="main-area">
+    <a href="/" class="back-link" style="position:absolute;top:1rem;left:1rem;color:var(--accent);font-size:0.9rem;text-decoration:none;">← Main menu</a>
+    <h1>SudoPHASE</h1>
+    <p class="subtitle" id="subtitle">Puzzle · 0:00</p>
+  <div class="grid-wrap">
+      <div class="sudoku-grid" id="grid"></div>
+  </div>
+    <div class="pad-wrap" id="numberPad"></div>
+  <div class="controls">
+    <button type="button" id="clearBtn">Clear</button>
+  </div>
+  <div class="result" id="result" style="display: none;"></div>
+    <input type="file" id="uploadPuzzleInput" accept=".txt,text/plain" style="display:none">
+  </main>
+  <div class="download-modal-backdrop" id="downloadBackdrop">
+    <div class="download-modal">
+      <h3>Download</h3>
+      <fieldset>
+        <legend>Content</legend>
+        <label><input type="radio" name="dlKind" value="initial" checked> Initial puzzle (clues only)</label>
+        <label><input type="radio" name="dlKind" value="progress"> Puzzle Solved/Progress (initial + current grid)</label>
+      </fieldset>
+      <fieldset>
+        <legend>Document type</legend>
+        <label><input type="radio" name="dlFmt" value="txt" checked> Text (.txt)</label>
+        <label><input type="radio" name="dlFmt" value="pdf"> PDF (.pdf)</label>
+      </fieldset>
+      <div class="actions">
+        <button type="button" id="downloadCancelBtn">Cancel</button>
+        <button type="button" class="primary" id="downloadOkBtn">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const THEME_KEY = 'sudophaseTheme';
+
+    function applyTheme(theme) {
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+
+    function initThemeToggle() {
+      const stored = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(stored);
+      const btn = document.getElementById('themeToggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      });
+    }
+
+    initThemeToggle();
+
+    const gridEl = document.getElementById('grid');
+    const resultEl = document.getElementById('result');
+    const solveBtn = document.getElementById('solveBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const sourceSelect = document.getElementById('sourceSelect');
+    const sizeSelect = document.getElementById('sizeSelect');
+    const libraryList = document.getElementById('libraryList');
+    const loadBtn = document.getElementById('loadBtn');
+    const deleteCreatedBtn = document.getElementById('deleteCreatedBtn');
+    const libraryHint = document.getElementById('libraryHint');
+    const subtitle = document.getElementById('subtitle');
+    const numberPad = document.getElementById('numberPad');
+
+    const SIZES = { '9×9': 3, '16×16': 4, '25×25': 5, '9x9': 3, '16x16': 4, '25x25': 5 };
+    const CELLS = { 3: 81, 4: 256, 5: 625 };
+    const MAX_VAL = { 3: 9, 4: 16, 5: 25 };
+    const CREATED_KEY = 'sudophaseCreatedPuzzles';
+    let libraryData = {};
+    let currentOrder = 3;
+    let currentSizeLabel = '9×9';
+    let lastFocusedInput = null;
+    let undoStack = [];
+    let initialPuzzle = ''; // clues-only puzzle for current grid; used to know which cells are fixed when restoring undo
+    let savedCellIndex = null;  // cell index before current input (so we can snapshot state-before-typing)
+    let savedCellValue = '';
+    let fixedCellTooltipEl = null;
+    let fixedCellTooltipTimeout = null;
+    let currentPuzzleName = ''; // instance filename or "Default puzzle", "Created puzzle", "Empty grid"
+    let userSolveStartTime = null;
+    let subtitleTimerId = null;
+
+    function updateUndoButton() {
+      const btn = document.getElementById('undoBtn');
+      if (!btn) return;
+      btn.disabled = undoStack.length === 0;
+    }
+
+    function showFixedCellTooltip(cell) {
+      if (!cell) return;
+      if (!fixedCellTooltipEl) {
+        fixedCellTooltipEl = document.createElement('div');
+        fixedCellTooltipEl.className = 'cell-tooltip';
+        document.body.appendChild(fixedCellTooltipEl);
+      }
+      fixedCellTooltipEl.textContent = "Can't fill in a pre-filled cell";
+      const rect = cell.getBoundingClientRect();
+      fixedCellTooltipEl.style.left = (rect.left + rect.width / 2) + 'px';
+      fixedCellTooltipEl.style.top = rect.top + 'px';
+      fixedCellTooltipEl.classList.add('visible');
+      if (fixedCellTooltipTimeout) clearTimeout(fixedCellTooltipTimeout);
+      fixedCellTooltipTimeout = setTimeout(() => {
+        if (fixedCellTooltipEl) fixedCellTooltipEl.classList.remove('visible');
+      }, 1500);
+    }
+
+    function startUserSolveTimer() {
+      userSolveStartTime = Date.now();
+      if (!subtitleTimerId) subtitleTimerId = setInterval(updateSubtitle, 1000);
+    }
+    function clearUserSolveTimer() {
+      userSolveStartTime = null;
+      if (subtitleTimerId) { clearInterval(subtitleTimerId); subtitleTimerId = null; }
+      updateSubtitle();
+    }
+    function updateSubtitle() {
+      let timerStr = '0:00';
+      if (userSolveStartTime != null) {
+        const elapsed = Math.floor((Date.now() - userSolveStartTime) / 1000);
+        const m = Math.floor(elapsed / 60);
+        const s = elapsed % 60;
+        timerStr = m + ':' + (s < 10 ? '0' : '') + s;
+      }
+      const name = currentPuzzleName || 'Puzzle';
+      subtitle.textContent = name + ' · ' + timerStr;
+    }
+    function checkUserCompleted() {
+      const inputs = gridEl.querySelectorAll('input');
+      if (!inputs.length) return false;
+      for (const inp of inputs) {
+        if (!inp.value.trim()) return false;
+        if (inp.classList.contains('conflict')) return false;
+      }
+      return true;
+    }
+    function showUserSolvedMessage(elapsedSec) {
+      resultEl.style.display = 'block';
+      resultEl.classList.remove('error');
+      const mins = Math.floor(elapsedSec / 60);
+      const secs = elapsedSec % 60;
+      const timeStr = mins > 0 ? mins + ' min ' + secs.toFixed(1) + ' s' : elapsedSec.toFixed(1) + ' s';
+      resultEl.innerHTML = '<strong class="time">Puzzle solved!</strong> You completed it in ' + timeStr + '.';
+    }
+
+    function snapshotGrid(overrideIndex, overrideDisplayValue) {
+      // Save current grid state. If overrideIndex/overrideDisplayValue provided, use that value for that cell (state before typing).
+      if (!gridEl.querySelector('input')) return;
+      const puzzle = gridToPuzzle(overrideIndex, overrideDisplayValue);
+      undoStack.push({ puzzle, order: currentOrder, initialPuzzle });
+      if (undoStack.length > 200) undoStack.shift();
+      updateUndoButton();
+    }
+
+    function restoreLastState() {
+      if (!undoStack.length) return;
+      const state = undoStack.pop();
+      if (!state) return;
+      savedCellIndex = null;
+      savedCellValue = '';
+      if (state.order !== currentOrder) {
+        createGrid(state.order);
+      }
+      initialPuzzle = state.initialPuzzle || '';
+      puzzleToGrid(state.puzzle, state.order, initialPuzzle);
+      resultEl.style.display = 'none';
+      updateSolveButton();
+      updateUndoButton();
+      startUserSolveTimer();
+      updateSubtitle();
+    }
+
+    function selectCell(el) {
+      const inputs = gridEl.querySelectorAll('input');
+      inputs.forEach(inp => inp.classList.remove('peer-highlight'));
+      if (lastFocusedInput && lastFocusedInput !== el) {
+        lastFocusedInput.classList.remove('selected-cell');
+      }
+      lastFocusedInput = el;
+      if (el) {
+        el.classList.add('selected-cell');
+        if (el.classList.contains('fixed')) return;
+        const i = parseInt(el.dataset.index, 10);
+        if (Number.isNaN(i)) return;
+        const order = currentOrder;
+        const n = order * order;
+        const row = Math.floor(i / n);
+        const col = i % n;
+        const peerIndices = new Set();
+        for (let c = 0; c < n; c++) peerIndices.add(row * n + c);
+        for (let r = 0; r < n; r++) peerIndices.add(r * n + col);
+        const blockRow = Math.floor(row / order);
+        const blockCol = Math.floor(col / order);
+        const r0 = blockRow * order;
+        const c0 = blockCol * order;
+        for (let r = r0; r < r0 + order; r++) {
+          for (let c = c0; c < c0 + order; c++) {
+            peerIndices.add(r * n + c);
+          }
+        }
+        peerIndices.forEach(idx => {
+          if (inputs[idx] && inputs[idx] !== el) inputs[idx].classList.add('peer-highlight');
+        });
+      }
+    }
+
+    const UNDO_ICON = '<svg class="action-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l4-4M3 10l4 4"/></svg>';
+    const ERASE_ICON = '<svg class="action-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7l-4-4 4-4h13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1z"/><path d="M4 16l4-4"/><path d="M8 12l4 4"/></svg>';
+
+    function renderNumberPad(order) {
+      if (!numberPad) return;
+      numberPad.innerHTML = '';
+      const maxVal = MAX_VAL[order];
+
+      const actionRow = document.createElement('div');
+      actionRow.className = 'action-buttons';
+
+      const undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.id = 'undoBtn';
+      undoBtn.className = 'action-btn';
+      undoBtn.innerHTML = UNDO_ICON + '<span class="action-btn-label">Undo</span>';
+      undoBtn.addEventListener('click', () => restoreLastState());
+      actionRow.appendChild(undoBtn);
+
+      const eraseBtn = document.createElement('button');
+      eraseBtn.type = 'button';
+      eraseBtn.className = 'action-btn';
+      eraseBtn.innerHTML = ERASE_ICON + '<span class="action-btn-label">Erase</span>';
+      eraseBtn.addEventListener('click', () => {
+        const target = lastFocusedInput;
+        if (!target || target.classList.contains('fixed')) return;
+        snapshotGrid();
+        target.value = '';
+        target.classList.remove('filled');
+        updateSolveButton();
+        recomputeConflicts();
+        checkAndShowUserSolved();
+      });
+      actionRow.appendChild(eraseBtn);
+
+      numberPad.appendChild(actionRow);
+
+      const digitRows = document.createElement('div');
+      digitRows.className = 'digit-rows';
+
+      let rowRanges;
+      if (order === 3) rowRanges = [[1, 9]];
+      else if (order === 4) rowRanges = [[1, 8], [9, 16]];
+      else rowRanges = [[1, 10], [11, 20], [21, 25]];
+
+      for (const [lo, hi] of rowRanges) {
+        const digitRow = document.createElement('div');
+        digitRow.className = 'digit-row';
+        for (let v = lo; v <= hi; v++) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'digit-btn';
+          btn.textContent = String(v);
+          btn.addEventListener('click', () => {
+            let target = lastFocusedInput;
+            if (!target) {
+              target = gridEl.querySelector('input');
+              if (!target) return;
+              target.focus();
+              selectCell(target);
+            }
+            if (target.classList.contains('fixed')) {
+              showFixedCellTooltip(target);
+              return;
+            }
+            snapshotGrid();
+            target.value = String(v);
+            target.classList.add('filled');
+          updateSolveButton();
+          recomputeConflicts();
+          checkAndShowUserSolved();
+        });
+        digitRow.appendChild(btn);
+      }
+      digitRows.appendChild(digitRow);
+    }
+      numberPad.appendChild(digitRows);
+      updateUndoButton();
+    }
+
+    function createGrid(order) {
+      lastFocusedInput = null;
+      savedCellIndex = null;
+      savedCellValue = '';
+      const n = order * order;
+      const cells = n * n;
+      gridEl.innerHTML = '';
+      const maxVal = MAX_VAL[order];
+      const cellSize =
+        order === 3 ? 'clamp(3.35rem, 6.8vmin, 4.85rem)' : order === 4 ? 'clamp(2.55rem, 4.4vmin, 3.5rem)' : 'clamp(1.95rem, 3.1vmin, 2.45rem)';
+      const fontSize = order === 3 ? '1.55rem' : order === 4 ? '1.15rem' : '0.88rem';
+      gridEl.style.gridTemplateColumns = `repeat(${n}, ${cellSize})`;
+      gridEl.style.gridTemplateRows = `repeat(${n}, ${cellSize})`;
+      for (let i = 0; i < cells; i++) {
+        const row = Math.floor(i / n);
+        const col = i % n;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.inputMode = 'numeric';
+        input.maxLength = order === 3 ? 1 : 2;
+        input.dataset.index = i;
+        input.style.fontSize = fontSize;
+        if ((col + 1) % order === 0 && col !== n - 1) input.classList.add('block-right');
+        if ((row + 1) % order === 0 && row !== n - 1) input.classList.add('block-bottom');
+        input.addEventListener('focus', () => {
+          selectCell(input);
+          if (!input.classList.contains('fixed')) {
+            savedCellIndex = input.dataset.index;
+            savedCellValue = input.value;
+          }
+        });
+        input.addEventListener('click', () => selectCell(input));
+        input.addEventListener('input', function() {
+          if (!this.classList.contains('fixed')) {
+            const idx = parseInt(this.dataset.index, 10);
+            snapshotGrid(idx, savedCellValue);
+            savedCellIndex = idx;
+          }
+          let v = this.value.replace(/\D/g, '');
+          if (maxVal <= 9) {
+            v = v.slice(0, 1);
+            if (v === '0') v = '';
+          } else {
+            const num = parseInt(v, 10);
+            if (num === 0) v = '';
+            else if (num > maxVal) v = String(maxVal);
+            else if (v.length > 2) v = v.slice(0, 2);
+          }
+          this.value = v;
+          if (!this.classList.contains('fixed')) savedCellValue = v;
+          this.classList.toggle('filled', v.trim() !== '');
+          if (v) {
+            const inputs = gridEl.querySelectorAll('input');
+            const idx = parseInt(this.dataset.index, 10);
+            for (let i = idx + 1; i < inputs.length; i++) {
+              const next = inputs[i];
+              if (!next.classList.contains('fixed') && !next.value.trim()) {
+                next.focus();
+                selectCell(next);
+                break;
+              }
+            }
+          }
+          recomputeConflicts();
+          checkAndShowUserSolved();
+        });
+        input.addEventListener('keydown', function(e) {
+          if (!this.classList.contains('fixed')) {
+            savedCellIndex = this.dataset.index;
+            savedCellValue = this.value;
+          }
+          if (e.key === 'Backspace' && !this.value && this.previousElementSibling)
+            this.previousElementSibling.focus();
+        });
+        gridEl.appendChild(input);
+      }
+      currentOrder = order;
+      currentSizeLabel = Object.keys(SIZES).find(l => SIZES[l] === order) || '9×9';
+      renderNumberPad(order);
+    }
+
+    function order4DisplayToChar(v) {
+      const n = parseInt(v, 10);
+      if (n >= 1 && n <= 10) return String.fromCharCode(48 + n - 1);
+      if (n >= 11 && n <= 16) return String.fromCharCode(97 + n - 11);
+      return '.';
+    }
+    function order5DisplayToChar(v) {
+      const n = parseInt(v, 10);
+      if (n >= 1 && n <= 25) return String.fromCharCode(97 + n - 1);
+      return '.';
+    }
+    function order4CharToDisplay(ch) {
+      if (ch === '.') return '';
+      if (ch >= '0' && ch <= '9') return String(ch.charCodeAt(0) - 48 + 1);
+      if (ch >= 'a' && ch <= 'f') return String(ch.charCodeAt(0) - 97 + 11);
+      return '';
+    }
+    function order5CharToDisplay(ch) {
+      if (ch === '.') return '';
+      if (ch >= 'a' && ch <= 'y') return String(ch.charCodeAt(0) - 97 + 1);
+      return '';
+    }
+
+    function gridToPuzzle(overrideIndex, overrideDisplayValue) {
+      const inputs = gridEl.querySelectorAll('input');
+      const order = currentOrder;
+      const n = order * order;
+      const maxVal = MAX_VAL[order];
+      const out = [];
+      for (let i = 0; i < inputs.length; i++) {
+        const v = (overrideIndex !== undefined && overrideIndex !== null && i === parseInt(overrideIndex, 10))
+          ? (overrideDisplayValue !== undefined ? String(overrideDisplayValue || '').trim() : inputs[i].value.trim())
+          : inputs[i].value.trim();
+        if (!v) { out.push('.'); continue; }
+        if (order === 3) out.push(/^[1-9]$/.test(v) ? v : '.');
+        else if (order === 4) out.push(order4DisplayToChar(v));
+        else out.push(order5DisplayToChar(v));
+      }
+      return out.join('').slice(0, n * n);
+    }
+
+    function recomputeConflicts() {
+      const inputs = Array.from(gridEl.querySelectorAll('input'));
+      const order = currentOrder;
+      const n = order * order;
+      inputs.forEach(inp => inp.classList.remove('conflict'));
+
+      function markConflicts(indices) {
+        const seen = {};
+        for (const idx of indices) {
+          const v = inputs[idx].value.trim();
+          if (!v) continue;
+          const num = parseInt(v, 10);
+          if (!num || Number.isNaN(num)) continue;
+          if (!seen[num]) seen[num] = [];
+          seen[num].push(idx);
+        }
+        Object.values(seen).forEach(list => {
+          if (list.length > 1) {
+            list.forEach(i => inputs[i].classList.add('conflict'));
+          }
+        });
+      }
+
+      // Rows
+      for (let r = 0; r < n; r++) {
+        const idxs = [];
+        for (let c = 0; c < n; c++) idxs.push(r * n + c);
+        markConflicts(idxs);
+      }
+      // Columns
+      for (let c = 0; c < n; c++) {
+        const idxs = [];
+        for (let r = 0; r < n; r++) idxs.push(r * n + c);
+        markConflicts(idxs);
+      }
+      // Sub-grids
+      for (let br = 0; br < order; br++) {
+        for (let bc = 0; bc < order; bc++) {
+          const idxs = [];
+          const rowStart = br * order;
+          const colStart = bc * order;
+          for (let r = 0; r < order; r++) {
+            for (let c = 0; c < order; c++) {
+              const rr = rowStart + r;
+              const cc = colStart + c;
+              idxs.push(rr * n + cc);
+            }
+          }
+          markConflicts(idxs);
+        }
+      }
+    }
+
+    function checkAndShowUserSolved() {
+      if (userSolveStartTime == null) return;
+      if (!checkUserCompleted()) return;
+      const elapsedSec = (Date.now() - userSolveStartTime) / 1000;
+      clearUserSolveTimer();
+      showUserSolvedMessage(elapsedSec);
+    }
+
+    function puzzleToGrid(puzzle, order, cluesPuzzle) {
+      const inputs = gridEl.querySelectorAll('input');
+      const n = order * order;
+      const len = n * n;
+      const str = String(puzzle).padEnd(len, '.').slice(0, len);
+      const clues = cluesPuzzle != null ? String(cluesPuzzle).padEnd(len, '.').slice(0, len) : str;
+      for (let i = 0; i < inputs.length && i < len; i++) {
+        const ch = str[i];
+        let disp = '';
+        if (order === 3) disp = ch !== '.' && /[1-9]/.test(ch) ? ch : '';
+        else if (order === 4) disp = order4CharToDisplay(ch);
+        else disp = order5CharToDisplay(ch);
+        inputs[i].value = disp;
+        inputs[i].classList.remove('fixed', 'filled');
+        const isClue = order === 3
+          ? (clues[i] !== '.' && /[1-9]/.test(clues[i]))
+          : order === 4
+            ? (clues[i] !== '.' && order4CharToDisplay(clues[i]) !== '')
+            : (clues[i] !== '.' && order5CharToDisplay(clues[i]) !== '');
+        if (isClue) {
+          inputs[i].classList.add('fixed');
+          inputs[i].readOnly = true;
+        } else {
+          inputs[i].readOnly = false;
+          if (disp !== '') inputs[i].classList.add('filled');
+        }
+      }
+      recomputeConflicts();
+    }
+
+    function setSolution(puzzle, solution, order, instant) {
+      // Always apply the solved grid in one batched update so all cells change together.
+      const inputs = gridEl.querySelectorAll('input');
+      const n = order * order;
+      const len = n * n;
+      const puz = String(puzzle).padEnd(len, '.').slice(0, len);
+      const sol = String(solution).padEnd(len, '.').slice(0, len);
+
+      for (let i = 0; i < inputs.length && i < len; i++) {
+        let fixed = false;
+        if (order === 3) fixed = puz[i] !== '.' && /[1-9]/.test(puz[i]);
+        else if (order === 4) fixed = puz[i] !== '.' && order4CharToDisplay(puz[i]) !== '';
+        else fixed = puz[i] !== '.' && order5CharToDisplay(puz[i]) !== '';
+
+        let val = '';
+        if (order === 3) val = sol[i] !== '.' && /[1-9]/.test(sol[i]) ? sol[i] : '';
+        else if (order === 4) val = order4CharToDisplay(sol[i]);
+        else val = order5CharToDisplay(sol[i]);
+
+        inputs[i].classList.toggle('fixed', fixed);
+        inputs[i].readOnly = fixed;
+        if (fixed) {
+          // Keep clue cells visible and stable.
+          inputs[i].value = val;
+          inputs[i].classList.remove('filled');
+        } else {
+          inputs[i].value = val;
+          inputs[i].classList.toggle('filled', !!val);
+        }
+      }
+      recomputeConflicts();
+      // Keep previous behavior: only stop the user timer when applying final solved output.
+      if (!instant) clearUserSolveTimer();
+    }
+
+    function showResult(obj, isError) {
+      resultEl.style.display = 'block';
+      resultEl.classList.toggle('error', isError);
+      if (isError) {
+        resultEl.innerHTML = '<strong>Error</strong>: ' + (obj.error || 'Unknown error');
+        return;
+      }
+      let html = '';
+      if (obj.success) {
+        html += '<span class="time">Solved in ' + (obj.time != null ? obj.time.toFixed(2) : '?') + ' s</span>';
+        if (obj.iterations != null) html += '<div class="meta">Iterations: ' + obj.iterations + '</div>';
+        if (obj.communication != null) html += '<div class="meta">Communication: ' + (obj.communication ? 'yes' : 'no') + '</div>';
+      } else {
+        html += 'No solution within timeout' + (obj.time != null ? ' (' + obj.time.toFixed(2) + ' s)' : '') + '.';
+        if (obj.iterations != null) html += '<div class="meta">Iterations: ' + obj.iterations + '</div>';
+      }
+      resultEl.innerHTML = html;
+    }
+
+    function refreshLibraryList() {
+      const size = normalizeSizeLabel(sizeSelect.value);
+      const source = sourceSelect ? sourceSelect.value : 'curated';
+      if (loadBtn) loadBtn.disabled = (source === 'upload');
+      const sizeLabelWrap = sizeSelect ? sizeSelect.closest('label') : null;
+      if (sizeLabelWrap) sizeLabelWrap.style.display = (source === 'upload') ? 'none' : '';
+      if (source === 'upload') {
+        libraryList.innerHTML = '';
+        const li = document.createElement('li');
+        li.style.listStyle = 'none';
+        li.style.cursor = 'default';
+        li.style.padding = '0.5rem 0.35rem';
+        const p = document.createElement('p');
+        p.style.margin = '0 0 0.65rem 0';
+        p.style.fontSize = '0.9rem';
+        p.textContent = 'Curated-style .txt (order, idum, grid rows). Use the button below.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.style.padding = '0.4rem 0.8rem';
+        btn.style.borderRadius = '8px';
+        btn.style.border = '1px solid var(--border)';
+        btn.style.background = 'var(--accent)';
+        btn.style.color = 'var(--bg)';
+        btn.style.fontWeight = '600';
+        btn.style.cursor = 'pointer';
+        btn.textContent = 'Choose .txt file';
+        btn.addEventListener('click', () => document.getElementById('uploadPuzzleInput').click());
+        li.appendChild(p);
+        li.appendChild(btn);
+        libraryList.appendChild(li);
+        return;
+      }
+      const list = (source === 'curated')
+        ? (libraryData[size] || libraryData[String(size).replace(/×/g, 'x')] || [])
+        : getCreatedPuzzlesBySize(size);
+      libraryList.innerHTML = '';
+      list.forEach((item, idx) => {
+        const li = document.createElement('li');
+        li.textContent = item.name;
+        li.dataset.path = item.path;
+        li.dataset.index = idx;
+        if (item.id) li.dataset.id = item.id;
+        li.addEventListener('click', () => {
+          libraryList.querySelectorAll('li').forEach(l => l.classList.remove('selected'));
+          li.classList.add('selected');
+        });
+        libraryList.appendChild(li);
+      });
+      if (!list.length) {
+        const li = document.createElement('li');
+        li.textContent = (source === 'created') ? '(no created puzzles for this size)' : '(no instances for this size)';
+        li.style.pointerEvents = 'none';
+        li.style.opacity = '0.7';
+        libraryList.appendChild(li);
+      }
+    }
+
+    function safeJsonParse(text, fallback) {
+      try { return JSON.parse(text); } catch (_) { return fallback; }
+    }
+
+    function normalizeSizeLabel(sizeLabel) {
+      const raw = String(sizeLabel || '').trim();
+      if (!raw) return '9×9';
+      return raw.replace(/x/gi, '×');
+    }
+
+    function getCreatedPuzzles() {
+      const raw = localStorage.getItem(CREATED_KEY);
+      const parsed = raw ? safeJsonParse(raw, []) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    }
+
+    function setCreatedPuzzles(list) {
+      localStorage.setItem(CREATED_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+    }
+
+    function getCreatedPuzzlesBySize(sizeLabel) {
+      const normalized = normalizeSizeLabel(sizeLabel);
+      const order = SIZES[normalized] || SIZES[sizeLabel] || 3;
+      const list = getCreatedPuzzles()
+        .filter(p => p && p.order === order && typeof p.puzzle === 'string')
+        .map(p => ({
+          id: p.id,
+          name: p.name || 'Created puzzle',
+          order: p.order,
+          puzzle: p.puzzle,
+          createdAt: p.createdAt || 0
+        }));
+      // Most recent first
+      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return list;
+    }
+
+    async function loadLibrary() {
+      try {
+        const r = await fetch('/api/library');
+        libraryData = await r.json();
+        refreshLibraryList();
+      } catch (e) {
+        libraryList.innerHTML = '<li style="color:#f7768e">Failed to load library</li>';
+      }
+    }
+
+    function updateLibraryHint() {
+      const source = sourceSelect ? sourceSelect.value : 'curated';
+      if (!libraryHint) return;
+      libraryHint.textContent = source === 'created'
+        ? 'saved locally in this browser'
+        : source === 'upload'
+          ? 'upload puzzle from .txt file'
+          : 'instances/original database';
+      if (deleteCreatedBtn) deleteCreatedBtn.style.display = (source === 'created') ? 'block' : 'none';
+    }
+
+    if (sourceSelect) {
+      sourceSelect.addEventListener('change', () => {
+        updateLibraryHint();
+        // If switching to curated, ensure we have data
+        if (sourceSelect.value === 'curated' && (!libraryData || !Object.keys(libraryData).length)) {
+          loadLibrary();
+        } else {
+          refreshLibraryList();
+        }
+      });
+    }
+
+    sizeSelect.addEventListener('change', () => {
+      const newOrder = SIZES[sizeSelect.value];
+      if (newOrder !== currentOrder) {
+        currentOrder = newOrder;
+        currentSizeLabel = sizeSelect.value;
+        createGrid(currentOrder);
+        const len = CELLS[currentOrder];
+        initialPuzzle = '.'.repeat(len);
+        puzzleToGrid(initialPuzzle, currentOrder, initialPuzzle);
+        currentPuzzleName = 'Empty grid';
+        updateSubtitle();
+        resultEl.style.display = 'none';
+        updateSolveButton();
+      }
+      refreshLibraryList();
+    });
+
+    loadBtn.addEventListener('click', async () => {
+      const sel = libraryList.querySelector('li.selected');
+      const source = sourceSelect ? sourceSelect.value : 'curated';
+      if (source === 'upload') {
+        alert('Use “Choose .txt file” in the list above.');
+        return;
+      }
+      if (!sel) return;
+      const path = sel.dataset.path;
+      try {
+        snapshotGrid();
+        if (source === 'created') {
+          const id = sel.dataset.id;
+          const list = getCreatedPuzzles();
+          const match = list.find(p => String(p.id) === String(id));
+          if (!match) { showResult({ error: 'Created puzzle not found (local storage).' }, true); return; }
+          const order = match.order;
+          const puzzle = match.puzzle;
+          createGrid(order);
+          initialPuzzle = puzzle;
+          puzzleToGrid(puzzle, order, puzzle);
+          currentPuzzleName = match.name || 'Created puzzle';
+          resultEl.style.display = 'none';
+          lastSolvedSolution = null;
+          const pdfClear = document.getElementById('downloadBtn');
+          if (pdfClear) pdfClear.style.display = 'block';
+          startUserSolveTimer();
+          updateSolveButton();
+          updateSubtitle();
+        } else {
+          if (!path) return;
+          const r = await fetch('/api/instance/' + encodeURIComponent(path));
+          if (!r.ok) { const d = await r.json().catch(() => ({})); showResult(d, true); return; }
+          const data = await r.json();
+          const order = data.order;
+          const puzzle = data.puzzle;
+          createGrid(order);
+          initialPuzzle = puzzle;
+          puzzleToGrid(puzzle, order, puzzle);
+          currentPuzzleName = path.split('/').pop() || path;
+          resultEl.style.display = 'none';
+          lastSolvedSolution = null;
+          const pdfClear2 = document.getElementById('downloadBtn');
+          if (pdfClear2) pdfClear2.style.display = 'block';
+          startUserSolveTimer();
+          updateSolveButton();
+          updateSubtitle();
+        }
+      } catch (e) {
+        showResult({ error: e.message || 'Load failed' }, true);
+      }
+    });
+
+    if (deleteCreatedBtn) {
+      deleteCreatedBtn.addEventListener('click', () => {
+        const source = sourceSelect ? sourceSelect.value : 'curated';
+        if (source !== 'created') return;
+        const sel = libraryList.querySelector('li.selected');
+        if (!sel) { alert('Select a created puzzle first.'); return; }
+        const id = sel.dataset.id;
+        const name = sel.textContent || 'this puzzle';
+        if (!confirm(`Delete "${name}" from Created puzzles? This cannot be undone.`)) return;
+        const list = getCreatedPuzzles();
+        const next = list.filter(p => String(p.id) !== String(id));
+        setCreatedPuzzles(next);
+        refreshLibraryList();
+      });
+    }
+
+    let solving = false;
+    let activeJobId = null;
+    let cancelRequested = false;
+    let lastSolvedSolution = null;
+    let lastSolvedParams = null;
+
+    function sanitizeDownloadBase(name, fallback) {
+      let s = String(name || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+      return s || fallback;
+    }
+
+    function parseUploadedInstanceText(text) {
+      const rawLines = String(text).split(/\r?\n/).map(function(l) { return l.trim(); });
+      const lines = rawLines.filter(function(l) {
+        return l.length > 0 && l.charAt(0) !== '#';
+      });
+      if (lines.length < 2) throw new Error('Invalid file: need order and idum lines (comments # allowed).');
+      const order = parseInt(lines[0], 10);
+      if (![3, 4, 5].includes(order)) throw new Error('Unsupported order; use 3, 4, or 5.');
+      const numCells = Math.pow(order, 4);
+      const values = [];
+      for (let i = 2; i < lines.length; i++) {
+        const parts = lines[i].split(/\s+/);
+        for (let j = 0; j < parts.length; j++) {
+          const n = parseInt(parts[j], 10);
+          if (!Number.isNaN(n)) values.push(n);
+        }
+      }
+      if (values.length < numCells) throw new Error('Not enough grid values (expected ' + numCells + ').');
+      const slice = values.slice(0, numCells);
+      const out = [];
+      for (let k = 0; k < slice.length; k++) {
+        const v = slice[k];
+        if (v === -1) { out.push('.'); continue; }
+        if (order === 3) {
+          out.push((v >= 1 && v <= 9) ? String.fromCharCode(48 + v) : '.');
+        } else if (order === 4) {
+          if (v >= 1 && v <= 10) out.push(String.fromCharCode(48 + v - 1));
+          else if (v >= 11 && v <= 16) out.push(String.fromCharCode(97 + v - 11));
+          else out.push('.');
+        } else {
+          out.push((v >= 1 && v <= 25) ? String.fromCharCode(97 + v - 1) : '.');
+        }
+      }
+      return { order: order, puzzle: out.join('') };
+    }
+
+    function getParamsSnapshot() {
+      return {
+        timeout: parseInt(document.getElementById('timeout').value, 10) || 180,
+        threads: parseInt(document.getElementById('threads').value, 10) || 4,
+        ants: parseInt(document.getElementById('ants').value, 10) || 25,
+        evap: parseFloat(document.getElementById('evap').value) || 0.0075,
+        saTinit: parseFloat(document.getElementById('saTinit').value) || 5.75,
+        saTmin: parseFloat(document.getElementById('saTmin').value) || 0.01,
+        safreq: parseInt(document.getElementById('safreq').value, 10) || 25,
+        saCooling: parseFloat(document.getElementById('saCooling').value) || 0.995,
+        commThreshold: parseInt(document.getElementById('commThreshold').value, 10) || 100,
+        commEarly: parseInt(document.getElementById('commEarly').value, 10) || 60,
+        commLate: parseInt(document.getElementById('commLate').value, 10) || 25,
+        alg: 2,
+        order: currentOrder
+      };
+    }
+
+    function triggerBlobDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function runExperimentDownloadExport(kind, fmt) {
+      const len = CELLS[currentOrder] || 81;
+      if (!initialPuzzle || initialPuzzle === '.'.repeat(len)) {
+        alert('Load a puzzle first.');
+        return false;
+      }
+      const current = gridToPuzzle();
+      const manualSolved = checkUserCompleted();
+      const solverSolved = !!lastSolvedParams;
+      const reportKind = manualSolved ? 'solved' : 'progress';
+      const includeParams = manualSolved && solverSolved;
+      const solvedPayload = manualSolved ? current : '';
+      const stem = (currentPuzzleName || 'puzzle').replace(/\s+/g, '_');
+      const def = sanitizeDownloadBase((kind === 'initial' ? stem : (stem + '_progress')), kind === 'initial' ? 'puzzle' : 'progress');
+      const base = sanitizeDownloadBase(prompt('File name:', def), def);
+      const ext = fmt === 'pdf' ? '.pdf' : '.txt';
+      const filename = base.toLowerCase().endsWith(ext) ? base : base + ext;
+
+      const body = {
+        reportKind: kind === 'initial' ? 'initial' : reportKind,
+        includeParams: kind === 'initial' ? false : includeParams,
+        order: currentOrder,
+        puzzle: initialPuzzle,
+        currentPuzzle: kind === 'initial' ? '' : current,
+        solution: kind === 'initial' ? '' : solvedPayload,
+        params: (kind === 'initial' || !includeParams) ? {} : (lastSolvedParams || getParamsSnapshot())
+      };
+
+      const url = fmt === 'pdf' ? '/api/pdf' : '/api/export/report-txt';
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(function() { return ''; });
+        alert('Export failed' + (t ? ': ' + t : ''));
+        return false;
+      }
+      triggerBlobDownload(await r.blob(), filename);
+      return true;
+    }
+
+    function updateSolveButton() {
+      if (solving) return;
+      // In Experiment Mode, enable Solve when the original clue puzzle has empties.
+      const hasEmpty = (initialPuzzle || '').includes('.');
+      solveBtn.disabled = !hasEmpty;
+      solveBtn.title = !hasEmpty ? 'Grid is already full' : 'Solve the puzzle';
+    }
+
+    gridEl.addEventListener('input', updateSolveButton);
+    gridEl.addEventListener('change', updateSolveButton);
+
+    solveBtn.addEventListener('click', async () => {
+      // Always solve the original clue puzzle, not the grid with user entries.
+      const puzzle = initialPuzzle;
+      if (!puzzle || !puzzle.includes('.')) {
+        showResult({ error: 'Grid is already full' }, true);
+        return;
+      }
+
+      const evapVal = parseFloat(document.getElementById('evap').value);
+      if (isNaN(evapVal) || evapVal <= 0 || evapVal >= 1) {
+        alert("Invalid input for Evaporation Rate. Value must be strictly between 0 and 1.");
+        return;
+      }
+
+      const saCoolingVal = parseFloat(document.getElementById('saCooling').value);
+      if (isNaN(saCoolingVal) || saCoolingVal <= 0 || saCoolingVal >= 1) {
+        alert("Invalid input for Cooling Rate. Value must be strictly between 0 and 1.");
+        return;
+      }
+
+      snapshotGrid();
+      solving = true;
+      cancelRequested = false;
+      activeJobId = null;
+      solveBtn.disabled = true;
+      const stopBtn = document.getElementById('stopBtn');
+      if (stopBtn) stopBtn.disabled = false;
+      resultEl.style.display = 'block';
+      resultEl.classList.remove('error');
+      resultEl.innerHTML = 'Solving…';
+      resultEl.classList.add('loading');
+      try {
+        const timeout = parseInt(document.getElementById('timeout').value, 10) || 180;
+        const timeoutMs = (timeout + 20) * 1000;
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        let postRes, postData;
+        try {
+          // Reset grid back to clues so animation matches what we're solving.
+          puzzleToGrid(initialPuzzle, currentOrder, initialPuzzle);
+          postRes = await fetch('/api/solve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            puzzle,
+              timeout,
+              threads: parseInt(document.getElementById('threads').value, 10) || 4,
+              ants: parseInt(document.getElementById('ants').value, 10) || 25,
+              evap: parseFloat(document.getElementById('evap').value) || 0.0075,
+              saTinit: parseFloat(document.getElementById('saTinit').value) || 5.75,
+              saTmin: parseFloat(document.getElementById('saTmin').value) || 0.01,
+              safreq: parseInt(document.getElementById('safreq').value, 10) || 25,
+              saCooling: parseFloat(document.getElementById('saCooling').value) || 0.995,
+              commThreshold: parseInt(document.getElementById('commThreshold').value, 10) || 100,
+              commEarly: parseInt(document.getElementById('commEarly').value, 10) || 60,
+              commLate: parseInt(document.getElementById('commLate').value, 10) || 25,
+              alg: 2,
+              order: currentOrder
+          }),
+          signal: controller.signal
+        });
+          const text = await postRes.text();
+          try {
+            postData = text ? JSON.parse(text) : {};
+          } catch (_) {
+            resultEl.classList.remove('loading');
+            showResult({ error: 'Server returned invalid response. Is the app running?' }, true);
+            return;
+          }
+        } finally {
+        clearTimeout(id);
+        }
+        if (!postRes.ok) {
+        resultEl.classList.remove('loading');
+          showResult(postData && postData.error ? postData : { error: 'Server error ' + postRes.status }, true);
+          return;
+        }
+        // Support both APIs: direct result (200) or job_id + polling (202)
+        if (postData.job_id) {
+          const jobId = postData.job_id;
+          activeJobId = jobId;
+          const pollUntilDone = () => new Promise((resolve, reject) => {
+            const deadline = Date.now() + timeoutMs;
+            const poll = async () => {
+              try {
+                if (cancelRequested) {
+                  resolve({ status: 'error', result: { error: 'Cancelled by user' } });
+          return;
+        }
+                if (Date.now() > deadline) {
+                  reject(new Error('Request timed out'));
+                  return;
+                }
+                const r = await fetch('/api/status/' + encodeURIComponent(jobId), { signal: controller.signal });
+                const text = await r.text();
+                let data = {};
+                try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+                if (!r.ok || data.error) {
+                  resolve({ status: 'error', result: { error: data.error || ('Status ' + r.status) } });
+                  return;
+                }
+                if (data.status === 'done' || data.status === 'error') {
+                  resolve(data);
+                  return;
+                }
+                if (data.best_solution) setSolution(puzzle, data.best_solution, currentOrder, true);
+                setTimeout(poll, 150);
+              } catch (e) {
+                reject(e);
+              }
+            };
+            poll();
+          });
+          const statusData = await pollUntilDone();
+          resultEl.classList.remove('loading');
+          const res = statusData.result || {};
+          if (statusData.status === 'error' && res.error) {
+            showResult(res, true);
+          } else {
+            showResult(res, !!res.error);
+            if (res.success && res.solution) {
+              setSolution(puzzle, res.solution, currentOrder, false);
+              lastSolvedSolution = res.solution;
+              lastSolvedParams = {
+                timeout,
+                threads: parseInt(document.getElementById('threads').value, 10) || 4,
+                ants: parseInt(document.getElementById('ants').value, 10) || 25,
+                evap: parseFloat(document.getElementById('evap').value) || 0.0075,
+                saTinit: parseFloat(document.getElementById('saTinit').value) || 5.75,
+                saTmin: parseFloat(document.getElementById('saTmin').value) || 0.01,
+                safreq: parseInt(document.getElementById('safreq').value, 10) || 25,
+                saCooling: parseFloat(document.getElementById('saCooling').value) || 0.995,
+                commThreshold: parseInt(document.getElementById('commThreshold').value, 10) || 100,
+                commEarly: parseInt(document.getElementById('commEarly').value, 10) || 60,
+                commLate: parseInt(document.getElementById('commLate').value, 10) || 25,
+                alg: 2,
+                order: currentOrder
+              };
+              const pdfBtn = document.getElementById('downloadBtn');
+              if (pdfBtn) pdfBtn.style.display = 'block';
+            }
+          }
+        } else {
+          resultEl.classList.remove('loading');
+          showResult(postData, !!postData.error);
+          if (postData.success && postData.solution) setSolution(puzzle, postData.solution, currentOrder, false);
+        }
+      } catch (e) {
+        resultEl.classList.remove('loading');
+        const msg = e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Network error');
+        showResult({ error: msg }, true);
+      } finally {
+        solving = false;
+        activeJobId = null;
+        cancelRequested = false;
+        updateSolveButton();
+        const stopBtn = document.getElementById('stopBtn');
+        if (stopBtn) stopBtn.disabled = true;
+      }
+    });
+
+    const stopBtn = document.getElementById('stopBtn');
+    if (stopBtn) {
+      stopBtn.addEventListener('click', async () => {
+        if (!activeJobId) return;
+        cancelRequested = true;
+        stopBtn.disabled = true;
+        try {
+          await fetch('/api/cancel/' + encodeURIComponent(activeJobId), { method: 'POST' });
+          showResult({ error: 'Puzzle not solved (cancelled).' }, true);
+        } catch (e) {
+          showResult({ error: e.message || 'Cancel failed' }, true);
+        }
+      });
+    }
+
+    const downloadBackdrop = document.getElementById('downloadBackdrop');
+    const downloadCancelBtn = document.getElementById('downloadCancelBtn');
+    const downloadOkBtn = document.getElementById('downloadOkBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    function openDownloadModal() {
+      downloadBackdrop.style.display = 'flex';
+    }
+    function closeDownloadModal() {
+      downloadBackdrop.style.display = 'none';
+    }
+    if (downloadBtn) downloadBtn.addEventListener('click', openDownloadModal);
+    if (downloadCancelBtn) downloadCancelBtn.addEventListener('click', closeDownloadModal);
+    if (downloadBackdrop) {
+      downloadBackdrop.addEventListener('click', function(e) {
+        if (e.target === downloadBackdrop) closeDownloadModal();
+      });
+    }
+    if (downloadOkBtn) {
+      downloadOkBtn.addEventListener('click', async function() {
+        const kindEl = document.querySelector('#downloadBackdrop input[name="dlKind"]:checked');
+        const fmtEl = document.querySelector('#downloadBackdrop input[name="dlFmt"]:checked');
+        const kind = kindEl ? kindEl.value : 'initial';
+        const fmt = fmtEl ? fmtEl.value : 'txt';
+        const ok = await runExperimentDownloadExport(kind, fmt);
+        if (ok) closeDownloadModal();
+      });
+    }
+
+    clearBtn.addEventListener('click', () => {
+      snapshotGrid();
+      const inputs = gridEl.querySelectorAll('input');
+      inputs.forEach((cell) => {
+        if (cell.classList.contains('fixed')) return;
+        cell.value = '';
+        cell.classList.remove('filled', 'conflict');
+      });
+      recomputeConflicts();
+      resultEl.style.display = 'none';
+      lastSolvedSolution = null;
+      const pdfClear = document.getElementById('downloadBtn');
+      if (pdfClear) pdfClear.style.display = 'block';
+      clearUserSolveTimer();
+      updateSolveButton();
+      updateSubtitle();
+    });
+
+    document.getElementById('uploadPuzzleInput').addEventListener('change', function(e) {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function() {
+        try {
+          const parsed = parseUploadedInstanceText(reader.result);
+          snapshotGrid();
+          createGrid(parsed.order);
+          sizeSelect.value = parsed.order === 3 ? '9×9' : parsed.order === 4 ? '16×16' : '25×25';
+          currentOrder = parsed.order;
+          currentSizeLabel = sizeSelect.value;
+          initialPuzzle = parsed.puzzle;
+          puzzleToGrid(parsed.puzzle, parsed.order, parsed.puzzle);
+          currentPuzzleName = (file.name || '').replace(/\.txt$/i, '') || 'Uploaded';
+          lastSolvedSolution = null;
+          const pdfClear = document.getElementById('downloadBtn');
+          if (pdfClear) pdfClear.style.display = 'block';
+          resultEl.style.display = 'none';
+          startUserSolveTimer();
+          updateSolveButton();
+          updateSubtitle();
+          refreshLibraryList();
+        } catch (err) {
+          alert(err.message || 'Failed to parse file.');
+        }
+      };
+      reader.onerror = function() { alert('Could not read file.'); };
+      reader.readAsText(file, 'utf-8');
+    });
+
+    (function init() {
+      const params = new URLSearchParams(window.location.search);
+      const sizeParam = (params.get('size') || '').toLowerCase();
+      const sizeMap = { '9x9': '9×9', '16x16': '16×16', '25x25': '25×25' };
+      const initialSize = sizeMap[sizeParam] || '9×9';
+      const initialOrder = SIZES[initialSize] || 3;
+
+      createGrid(initialOrder);
+      sizeSelect.value = initialSize;
+      if (sourceSelect) sourceSelect.value = 'curated';
+      updateLibraryHint();
+      updateSolveButton();
+      updateUndoButton();
+
+      const created = sessionStorage.getItem('createdPuzzle');
+      if (created) {
+        try {
+          const data = JSON.parse(created);
+          const { order, puzzle } = data;
+          sessionStorage.removeItem('createdPuzzle');
+          if (order && puzzle && [3, 4, 5].includes(order)) {
+            createGrid(order);
+            sizeSelect.value = order === 3 ? '9×9' : order === 4 ? '16×16' : '25×25';
+            initialPuzzle = puzzle;
+            puzzleToGrid(puzzle, order, puzzle);
+            currentPuzzleName = data.name || (data.filename) || 'Created puzzle';
+            lastSolvedSolution = null;
+            const pdfC = document.getElementById('downloadBtn');
+            if (pdfC) pdfC.style.display = 'block';
+            resultEl.style.display = 'none';
+            startUserSolveTimer();
+            loadLibrary();
+            updateSubtitle();
+            return;
+          }
+        } catch (_) {}
+      }
+
+      if (initialSize === '9×9') {
+        initialPuzzle = '53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79';
+        puzzleToGrid(initialPuzzle, 3, initialPuzzle);
+        currentPuzzleName = 'Default puzzle';
+        startUserSolveTimer();
+      } else {
+        const len = CELLS[initialOrder] || 81;
+        initialPuzzle = '.'.repeat(len);
+        puzzleToGrid(initialPuzzle, initialOrder, initialPuzzle);
+        currentPuzzleName = 'Empty grid';
+      }
+      updateSubtitle();
+      loadLibrary();
+    })();
+  </script>
+</body>
+</html>
