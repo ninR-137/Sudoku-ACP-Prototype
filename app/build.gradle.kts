@@ -14,6 +14,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17")
+                abiFilters("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            }
+        }
     }
 
     buildTypes {
