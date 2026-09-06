@@ -11,6 +11,7 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -41,6 +42,13 @@ public class SolverActivity extends AppCompatActivity {
     private int n;
     private String imagePath;
     private DigitRecognizer digitRecognizer;
+    private Button btnSolve;
+
+    static {
+        System.loadLibrary("native-lib");
+    }
+
+    public native String solveSudokuNative(String puzzleStr, int algorithm, int threads);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +68,9 @@ public class SolverActivity extends AppCompatActivity {
         cellArray = new EditText[n * n];
         debugCellImages = new Bitmap[n * n];
         createBoard();
+
+        btnSolve = findViewById(R.id.btnSolve);
+        btnSolve.setOnClickListener(v -> solveWithMCAS());
 
         if (imagePath != null) {
             processFullBoard();
@@ -274,6 +285,40 @@ public class SolverActivity extends AppCompatActivity {
                 sudokuGrid.addView(cell);
             }
         }
+    }
+
+    private void solveWithMCAS() {
+        String puzzle = getBoardString();
+        // algorithm 2 = MCAS, using 4 threads
+        String solution = solveSudokuNative(puzzle, 2, 4);
+
+        if (solution != null && !solution.isEmpty() && solution.length() == n * n) {
+            for (int i = 0; i < solution.length(); i++) {
+                char c = solution.charAt(i);
+                if (c != '.') {
+                    cellArray[i].setText(String.valueOf(c));
+                    cellArray[i].setTextColor(Color.BLACK); // Solution in black
+                }
+            }
+            Toast.makeText(this, "Solved!", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "No solution found within timeout", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String getBoardString() {
+        StringBuilder sb = new StringBuilder();
+        for (EditText et : cellArray) {
+            String val = et.getText().toString();
+            if (val.isEmpty()) {
+                sb.append(".");
+            } else {
+                // The C++ Board constructor handles 9x9 (1-9), 16x16 (0-f), 25x25 (a-y)
+                // We assume the user or OCR has entered valid characters for the size.
+                sb.append(val.toLowerCase());
+            }
+        }
+        return sb.toString();
     }
 
     private void showDebugCell(Bitmap bitmap, int index) {

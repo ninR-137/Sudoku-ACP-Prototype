@@ -292,8 +292,6 @@ public class CameraActivity extends AppCompatActivity {
         return dst;
     }
 
-    // Inside CameraActivity.java
-
     private void takePhoto() {
         synchronized (matLock) {
             if (latestSudokuMat == null || latestSudokuMat.empty()) {
