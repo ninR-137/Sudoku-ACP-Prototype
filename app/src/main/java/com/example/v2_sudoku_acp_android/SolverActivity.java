@@ -168,25 +168,25 @@ public class SolverActivity extends AppCompatActivity {
 //        );
 
         // --- Fix 2: fallback to adaptive threshold if Otsu found almost nothing ---
-        double totalPixels = thresh.rows() * thresh.cols();
-        double whiteRatio = Core.countNonZero(thresh) / totalPixels;
+//        double totalPixels = thresh.rows() * thresh.cols();
+//        double whiteRatio = Core.countNonZero(thresh) / totalPixels;
 //        Log.d(TAG, "Otsu whiteRatio (" + whiteRatio +
 //                ") for cell " + index);
 
-        if (whiteRatio < 0.015) {
-            Log.d(TAG, "Otsu produced too little foreground (" + whiteRatio +
-                    ") for cell " + index + ", falling back to adaptive threshold");
-
-            Imgproc.adaptiveThreshold(
-                    blurred,
-                    thresh,
-                    255,
-                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    Imgproc.THRESH_BINARY_INV,
-                    15,
-                    3
-            );
-        }
+//        if (whiteRatio < 0.015) {
+//            Log.d(TAG, "Otsu produced too little foreground (" + whiteRatio +
+//                    ") for cell " + index + ", falling back to adaptive threshold");
+//
+//            Imgproc.adaptiveThreshold(
+//                    blurred,
+//                    thresh,
+//                    255,
+//                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+//                    Imgproc.THRESH_BINARY_INV,
+//                    15,
+//                    3
+//            );
+//        }
         // ---------------------------------------------------------------------
 
         int beforeClear = Core.countNonZero(thresh);
@@ -241,7 +241,7 @@ public class SolverActivity extends AppCompatActivity {
         double cellArea = cell.rows() * cell.cols();
 
         for (MatOfPoint contour : contours) {
-            Log.w(TAG, "Contour found in index: " + index);
+//            Log.w(TAG, "Contour found in index: " + index);
             Rect rect = Imgproc.boundingRect(contour);
             double area = Imgproc.contourArea(contour);
 
@@ -266,12 +266,12 @@ public class SolverActivity extends AppCompatActivity {
                             aspectRatio > 0.10 &&
                             aspectRatio < 1.5;
 
-            Log.d(TAG,
-                    "cell=" + index +
-                            " area=" + area +
-                            " rect=" + rect.width + "x" + rect.height +
-                            " aspect=" + aspectRatio +
-                            " valid=" + validCandidate);
+//            Log.d(TAG,
+//                    "cell=" + index +
+//                            " area=" + area +
+//                            " rect=" + rect.width + "x" + rect.height +
+//                            " aspect=" + aspectRatio +
+//                            " valid=" + validCandidate);
 
             if (validCandidate && area > largestCandidateArea) {
                 largestCandidateArea = area;
