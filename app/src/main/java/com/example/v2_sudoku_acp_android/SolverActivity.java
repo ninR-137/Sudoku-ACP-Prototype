@@ -155,7 +155,7 @@ public class SolverActivity extends AppCompatActivity {
                 255,
                 Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
                 Imgproc.THRESH_BINARY_INV,
-                39,
+                49,
                 3
         );
 
