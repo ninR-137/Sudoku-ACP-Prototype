@@ -24,6 +24,7 @@ import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
@@ -148,23 +149,23 @@ public class SolverActivity extends AppCompatActivity {
         Imgproc.GaussianBlur(cell, blurred, new Size(3, 3), 0);
 
         Mat thresh = new Mat();
-//        Imgproc.adaptiveThreshold(
-//                blurred,
-//                thresh,
-//                255,
-//                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-//                Imgproc.THRESH_BINARY_INV,
-//                15,
-//                3
-//        );
-
-        Imgproc.threshold(
+        Imgproc.adaptiveThreshold(
                 blurred,
                 thresh,
-                0,
                 255,
-                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY_INV,
+                39,
+                3
         );
+
+//        Imgproc.threshold(
+//                blurred,
+//                thresh,
+//                0,
+//                255,
+//                Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU
+//        );
 
         // --- Fix 2: fallback to adaptive threshold if Otsu found almost nothing ---
         double totalPixels = thresh.rows() * thresh.cols();
@@ -214,75 +215,77 @@ public class SolverActivity extends AppCompatActivity {
 //                "cell=" + index +
 //                        " contours=" + contours.size());
 
+
+// Old Code
+//        Rect bestRect = null;
+//        double maxArea = 0;
+//        double cellArea = cell.rows() * cell.cols();
+//
+//        for (MatOfPoint contour : contours) {
+//            Rect rect = Imgproc.boundingRect(contour);
+//            double area = Imgproc.contourArea(contour);
+//            double aspectRatio = rect.height == 0 ? 0 : (double) rect.width / rect.height;
+//
+//            if (area > cellArea * 0.03 && area < cellArea * 0.80 && aspectRatio > 0.10 && aspectRatio < 1.5) {
+//                if (area > maxArea) {
+//                    maxArea = area;
+//                    bestRect = rect;
+//                }
+//            }
+//            contour.release();
+//        }
+
+//        // ---------------------------------------------------------------------
         Rect bestRect = null;
-        double maxArea = 0;
+        double largestCandidateArea = 0;
         double cellArea = cell.rows() * cell.cols();
 
         for (MatOfPoint contour : contours) {
+            Log.w(TAG, "Contour found in index: " + index);
             Rect rect = Imgproc.boundingRect(contour);
             double area = Imgproc.contourArea(contour);
-            double aspectRatio = rect.height == 0 ? 0 : (double) rect.width / rect.height;
 
-            if (area > cellArea * 0.03 && area < cellArea * 0.80 && aspectRatio > 0.10 && aspectRatio < 1.5) {
-                if (area > maxArea) {
-                    maxArea = area;
-                    bestRect = rect;
-                }
+            if (rect.height <= 0) {
+                contour.release();
+                continue;
             }
+
+            double aspectRatio = (double) rect.width / rect.height;
+
+            double minArea = cellArea * 0.005;
+            double maxAllowedArea = cellArea * 0.70;
+
+            int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
+            int minHeight = Math.max(4, (int) (cell.rows() * 0.10));
+
+            boolean validCandidate =
+                    area > minArea &&
+                            area < maxAllowedArea &&
+                            rect.width >= minWidth &&
+                            rect.height >= minHeight &&
+                            aspectRatio > 0.10 &&
+                            aspectRatio < 1.5;
+
+            Log.d(TAG,
+                    "cell=" + index +
+                            " area=" + area +
+                            " rect=" + rect.width + "x" + rect.height +
+                            " aspect=" + aspectRatio +
+                            " valid=" + validCandidate);
+
+            if (validCandidate && area > largestCandidateArea) {
+                largestCandidateArea = area;
+                bestRect = rect;
+            }
+
             contour.release();
         }
 
         // ---------------------------------------------------------------------
-//        Rect bestRect = null;
-//        double largestCandidateArea = 0;
-//        double cellArea = cell.rows() * cell.cols();
-//
-//        for (MatOfPoint contour : contours) {
-//            Log.w(TAG, "Contour found in index: " + index);
-//            Rect rect = Imgproc.boundingRect(contour);
-//            double area = Imgproc.contourArea(contour);
-//
-//            if (rect.height <= 0) {
-//                contour.release();
-//                continue;
-//            }
-//
-//            double aspectRatio = (double) rect.width / rect.height;
-//
-//            double minArea = cellArea * 0.005;
-//            double maxAllowedArea = cellArea * 0.70;
-//
-//            int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
-//            int minHeight = Math.max(4, (int) (cell.rows() * 0.10));
-//
-//            boolean validCandidate =
-//                    area > minArea &&
-//                            area < maxAllowedArea &&
-//                            rect.width >= minWidth &&
-//                            rect.height >= minHeight &&
-//                            aspectRatio > 0.10 &&
-//                            aspectRatio < 2.0;
-//
-//            Log.d(TAG,
-//                    "cell=" + index +
-//                            " area=" + area +
-//                            " rect=" + rect.width + "x" + rect.height +
-//                            " aspect=" + aspectRatio +
-//                            " valid=" + validCandidate);
-//
-//            if (validCandidate && area > largestCandidateArea) {
-//                largestCandidateArea = area;
-//                bestRect = rect;
-//            }
-//
-//            contour.release();
-//        }
-//
-//        // ---------------------------------------------------------------------
         hierarchy.release();
 
         if (bestRect == null) {
-//            Log.w(TAG, "bestRect == null for cell: " + index);
+            Log.w(TAG, "bestRect == null for cell: " + index);
             thresh.release();
             return null;
         }
@@ -339,7 +342,6 @@ public class SolverActivity extends AppCompatActivity {
                 new Scalar(0),
                 -1
         );
-
         // Bottom
         Imgproc.rectangle(
                 binary,
@@ -348,7 +350,6 @@ public class SolverActivity extends AppCompatActivity {
                 new Scalar(0),
                 -1
         );
-
         // Left
         Imgproc.rectangle(
                 binary,
@@ -357,7 +358,6 @@ public class SolverActivity extends AppCompatActivity {
                 new Scalar(0),
                 -1
         );
-
         // Right
         Imgproc.rectangle(
                 binary,
@@ -367,7 +367,6 @@ public class SolverActivity extends AppCompatActivity {
                 -1
         );
     }
-
 
     private void createBoard() {
         int blockSize = (int) Math.sqrt(n);
