@@ -19,10 +19,10 @@ import java.util.Locale;
 
 public class DigitRecognizer {
     private static final String TAG = "DigitRecognizer";
-    private static final String MODEL_FILE = "tmnist_x_mnist_2.tflite";
+    private static final String MODEL_FILE = "tmnist_x_mnist_3.tflite";
     private static final int INPUT_SIZE = 28;
     private static final int PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE;
-    private static final float CONFIDENCE_THRESHOLD = 0.20f;
+    private static final float CONFIDENCE_THRESHOLD = 0.30f;
 
     private final Context context;
     private Interpreter tflite;
