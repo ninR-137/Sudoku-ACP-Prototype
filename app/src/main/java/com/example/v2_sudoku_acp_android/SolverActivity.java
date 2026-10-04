@@ -36,9 +36,14 @@ import org.opencv.imgproc.Imgproc;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class SolverActivity extends AppCompatActivity {
     private static final String TAG = "SolverActivity";
+    // Minimum grey-level gap between a blob and the surrounding paper for it to count as ink
+    private static final double MIN_INK_CONTRAST = 40.0;
+    // Minimum blob height as a fraction of the cell height
+    private static final double MIN_DIGIT_HEIGHT_RATIO = 0.25;
     private GridLayout sudokuGrid;
     private EditText[] cellArray;
     private Bitmap[] debugCellImages;
@@ -122,7 +127,8 @@ public class SolverActivity extends AppCompatActivity {
                     debugCellImages[index] = digitBitmap.copy(Bitmap.Config.ARGB_8888, false);
 
                     int digit = digitRecognizer.recognize(digitBitmap, index);
-                    if (digit > -1) {
+                    // 0 is not a valid value on a 9x9 board
+                    if (digit > -1 && !(n == 9 && digit == 0)) {
                         cellArray[index].setText(String.valueOf(digit));
                         cellArray[index].setTextColor(Color.BLUE);
                     } else {
@@ -141,7 +147,31 @@ public class SolverActivity extends AppCompatActivity {
         }
 
         fullImage.release();
+        markConflicts();
         Toast.makeText(this, "Scan Complete", Toast.LENGTH_SHORT).show();
+    }
+
+    // Flags recognized values that repeat in a row, column or box, since one of them must be misread
+    private void markConflicts() {
+        int blockSize = (int) Math.sqrt(n);
+        if (blockSize == 0) return;
+
+        for (int i = 0; i < n * n; i++) {
+            String val = cellArray[i].getText().toString();
+            if (val.isEmpty() || val.equals("NA")) continue;
+            int r1 = i / n, c1 = i % n;
+
+            for (int j = i + 1; j < n * n; j++) {
+                if (!val.equals(cellArray[j].getText().toString())) continue;
+                int r2 = j / n, c2 = j % n;
+
+                boolean sameBox = (r1 / blockSize == r2 / blockSize) && (c1 / blockSize == c2 / blockSize);
+                if (r1 == r2 || c1 == c2 || sameBox) {
+                    cellArray[i].setTextColor(Color.RED);
+                    cellArray[j].setTextColor(Color.RED);
+                }
+            }
+        }
     }
 
     private Mat extractDigitForMnist(Mat cell, int index) {
@@ -200,6 +230,11 @@ public class SolverActivity extends AppCompatActivity {
 //        clearBorders(thresh);
         clearBorderBand(thresh,6);
 
+        // Remove isolated specks left by paper texture
+        Mat openKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(3, 3));
+        Imgproc.morphologyEx(thresh, thresh, Imgproc.MORPH_OPEN, openKernel);
+        openKernel.release();
+
         int afterClear = Core.countNonZero(thresh);
 
 //        Log.d(TAG,
@@ -238,6 +273,9 @@ public class SolverActivity extends AppCompatActivity {
 //        // ---------------------------------------------------------------------
         Rect bestRect = null;
         double largestCandidateArea = 0;
+        // Largest contour regardless of validity, only used to explain rejections in the log
+        Rect largestRect = null;
+        double largestArea = 0;
         double cellArea = cell.rows() * cell.cols();
 
         for (MatOfPoint contour : contours) {
@@ -250,13 +288,18 @@ public class SolverActivity extends AppCompatActivity {
                 continue;
             }
 
+            if (area > largestArea) {
+                largestArea = area;
+                largestRect = rect;
+            }
+
             double aspectRatio = (double) rect.width / rect.height;
 
             double minArea = cellArea * 0.005;
             double maxAllowedArea = cellArea * 0.70;
 
             int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
-            int minHeight = Math.max(4, (int) (cell.rows() * 0.10));
+            int minHeight = Math.max(4, (int) (cell.rows() * MIN_DIGIT_HEIGHT_RATIO));
 
             boolean validCandidate =
                     area > minArea &&
@@ -285,7 +328,38 @@ public class SolverActivity extends AppCompatActivity {
         hierarchy.release();
 
         if (bestRect == null) {
-            Log.w(TAG, "bestRect == null for cell: " + index);
+            if (largestRect == null) {
+                Log.w(TAG, "bestRect == null for cell: " + index + " (no contours)");
+            } else {
+                Log.w(TAG, "bestRect == null for cell: " + index +
+                        " largest rejected blob=" + largestRect.width + "x" + largestRect.height +
+                        " cell=" + cell.cols() + "x" + cell.rows() +
+                        " heightRatio=" + String.format(Locale.US, "%.2f", (double) largestRect.height / cell.rows()) +
+                        " areaRatio=" + String.format(Locale.US, "%.3f", largestArea / cellArea) +
+                        " aspect=" + String.format(Locale.US, "%.2f", (double) largestRect.width / largestRect.height));
+            }
+            thresh.release();
+            return null;
+        }
+
+        // Reject low-contrast blobs: real ink is far darker than the paper, texture is not
+        Mat inkMask = Mat.zeros(thresh.size(), CvType.CV_8UC1);
+        thresh.submat(bestRect).copyTo(inkMask.submat(bestRect));
+        Mat paperMask = new Mat();
+        Core.bitwise_not(thresh, paperMask);
+        clearBorderBand(paperMask, 6);
+
+        double inkLevel = Core.mean(cell, inkMask).val[0];
+        double paperLevel = Core.mean(cell, paperMask).val[0];
+        double contrast = paperLevel - inkLevel;
+        inkMask.release();
+        paperMask.release();
+
+        Log.d(TAG, "cell=" + index +
+                " contrast=" + String.format(Locale.US, "%.1f", contrast) +
+                " heightRatio=" + String.format(Locale.US, "%.2f", (double) bestRect.height / cell.rows()));
+
+        if (contrast < MIN_INK_CONTRAST) {
             thresh.release();
             return null;
         }
