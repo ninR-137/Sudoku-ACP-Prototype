@@ -35,8 +35,14 @@ import java.util.Locale;
  * the same name holding the true grid: one row per line, values separated by spaces, "." for an
  * empty cell. Long-pressing the Solve button in the app exports such a pair.
  *
- * To add new test data
+ * To add new test data:
  *
+ * Scan the puzzle as usual until you reach the solver screen with the grid.
+ * Fix every wrong cell by hand so the grid shows exactly the printed clues: clear false digits, type in missed ones and replace any red NA.
+ * Long-press the Solve with MCAS button. A message "Fixture saved: board_9x9_…" confirms it.
+ *
+ * Then,
+ * 
  * 1. Open terminal in the project root directory
  * 2. Enter command:
  * ~/Library/Android/sdk/platform-tools/adb pull /sdcard/Android/data/com.example.v2_sudoku_acp_android/files/ocr_fixtures app/src/androidTest/assets/
