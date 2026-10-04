@@ -34,6 +34,12 @@ import java.util.Locale;
  * A fixture is an image as SolverActivity receives it (warped, square, grayscale) plus a .txt of
  * the same name holding the true grid: one row per line, values separated by spaces, "." for an
  * empty cell. Long-pressing the Solve button in the app exports such a pair.
+ *
+ * To add new test data
+ *
+ * 1. Open terminal in the project root directory
+ * 2. Enter command:
+ * ~/Library/Android/sdk/platform-tools/adb pull /sdcard/Android/data/com.example.v2_sudoku_acp_android/files/ocr_fixtures app/src/androidTest/assets/
  */
 @RunWith(AndroidJUnit4.class)
 public class OcrAccuracyTest {
