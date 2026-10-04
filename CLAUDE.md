@@ -19,7 +19,27 @@ sh gradlew testDebugUnitTest --tests "com.example.v2_sudoku_acp_android.ExampleU
 sh gradlew connectedDebugAndroidTest       # instrumented tests, needs a device
 ```
 
-Testing caveat: only the template `ExampleUnitTest` / `ExampleInstrumentedTest` exist, and `app/build.gradle.kts` declares no `testImplementation` / `androidTestImplementation` dependencies (JUnit and Espresso are in `gradle/libs.versions.toml` but unused). Add those before writing real tests.
+The debug APK with all four ABIs is about 180 MB and may not fit on an emulator. Add `-Pandroid.injected.build.abi=arm64-v8a` (what Android Studio does) to build and install only the device's ABI.
+
+### OCR accuracy test
+
+`OcrAccuracyTest` (instrumented, because OpenCV and TFLite need a device) runs `SudokuOcr` over every fixture in `app/src/androidTest/assets/ocr_fixtures/` and logs per-image and total cell accuracy, with each wrong cell classified as false positive, missed, misread or unreadable. Run it after any change to `SudokuOcr` or `DigitRecognizer`:
+
+```bash
+sh gradlew installDebug installDebugAndroidTest -Pandroid.injected.build.abi=arm64-v8a
+adb shell am instrument -w -e class com.example.v2_sudoku_acp_android.OcrAccuracyTest com.example.v2_sudoku_acp_android.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s OcrAccuracy:I      # the report
+```
+
+Prefer this over `connectedDebugAndroidTest`, which uninstalls the app from the device afterwards. The test only fails below `MIN_ACCURACY` (currently 0.0, so it is a report, not a gate).
+
+A fixture is the image exactly as `SolverActivity` receives it plus a same-named `.txt` with the true grid (one row per line, space-separated, `.` for empty). To add one: scan in the app, correct any wrong cells by hand, long-press the Solve button (before solving), then copy the pair out:
+
+```bash
+adb pull /sdcard/Android/data/com.example.v2_sudoku_acp_android/files/ocr_fixtures app/src/androidTest/assets/
+```
+
+The other tests are the template `ExampleUnitTest` / `ExampleInstrumentedTest`.
 
 Toolchain: AGP 8.7.3, Gradle 8.12, Java 11 source level (daemon JVM 21 via foojay), compileSdk/targetSdk 35, minSdk 24, C++17. Dependency versions live in `gradle/libs.versions.toml`; the `tensorflow-lite*` aliases actually resolve to `com.google.ai.edge.litert` artifacts.
 
@@ -33,16 +53,18 @@ All hand-offs are a JPEG written to `getExternalFilesDir(null)` plus the intent 
 - **CameraActivity** — CameraX `ImageAnalysis` loop. Adaptive-thresholds each frame, takes the largest 4-corner contour as the grid, estimates grid size from the median width of child contours (majority vote over the last 20 frames, or a user lock), and keeps the latest 500x500 perspective-warped *binary* mat for capture.
 - **ProcessingActivity** — gallery path. Detects candidate quadrilaterals, the user taps one, it is warped to 1000x1000, then the user picks the grid size and toggles filters. The grid lines are drawn onto the image that is returned.
 - **EditImageActivity** + `PaintView` — manual paint/erase touch-up of `captured_sudoku.jpg`.
-- **SolverActivity** — slices the image into `n x n` cells, runs OCR, shows an editable `GridLayout` of `EditText`s, and calls the native solver. Long-pressing a cell shows the 28x28 image that was fed to the model (the main OCR debugging tool).
+- **SolverActivity** — hands the image to `SudokuOcr`, shows the result in an editable `GridLayout` of `EditText`s (red for unreadable cells and for values that repeat in a row, column or box), and calls the native solver. Long-pressing a cell shows the 28x28 image that was fed to the model (the main OCR debugging tool); long-pressing Solve exports an OCR test fixture.
 - `GalleryActivity` + `QuadrilateralSelectionView` (manual 4-corner selection) are registered in the manifest but nothing launches them; `ProcessingActivity` replaced that path.
 
-### OCR (`SolverActivity.extractDigitForMnist` → `DigitRecognizer`)
+### OCR (`SudokuOcr` → `DigitRecognizer`)
 
-Per cell: 5% inset, Gaussian blur, adaptive threshold (block 49, C 3), `clearBorderBand` zeroes a 6px frame to remove grid lines, the largest contour passing area/size/aspect filters is taken as the digit, scaled to fit 20px and centered on a 28x28 black canvas (MNIST layout, white digit on black). No valid contour means an empty cell.
+`SudokuOcr.readBoard(Mat gray, int n)` has no UI dependencies and returns a per-cell value (`EMPTY`, `UNREADABLE` or the digit) plus the 28x28 model inputs.
+
+Per cell (`extractDigitForMnist`): 5% inset, Gaussian blur, adaptive threshold (block 49, C 3), `clearBorderBand` zeroes a frame to remove grid lines, a 3x3 morphological open removes specks, then the largest contour passing the area/size/aspect filters is taken as the digit. Empty cells are decided here, before the model runs, by three checks whose cutoffs are the constants at the top of the class: minimum blob height, a grid-line test (blob starts at the blanked frame and spans most of that edge), and minimum grey-level contrast between the blob and the paper. The surviving blob is scaled to fit 20px and centered on a 28x28 black canvas (MNIST layout, white digit on black).
 
 `DigitRecognizer` loads the model named by `MODEL_FILE` from `app/src/main/assets/` (several `.tflite` iterations are kept there; only that constant decides which one is used), feeds 28x28 float32 in [0,1], expects a 10-class output, and returns -1 below `CONFIDENCE_THRESHOLD`, which the UI renders as a red `NA`.
 
-The threshold constants here have been tuned by hand across several commits (Otsu was tried and reverted because of ghost digits); the commented-out blocks are that history.
+The threshold constants here have been tuned by hand across several commits (Otsu was tried and reverted because of ghost digits); the commented-out blocks are that history. Each was fixed against a single photo, so re-run the accuracy test rather than judging a change on one image.
 
 ### Native solver (`app/src/main/cpp/`)
 
