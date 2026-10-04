@@ -44,6 +44,10 @@ public class SolverActivity extends AppCompatActivity {
     private static final double MIN_INK_CONTRAST = 40.0;
     // Minimum blob height as a fraction of the cell height
     private static final double MIN_DIGIT_HEIGHT_RATIO = 0.25;
+    // Width of the frame blanked on each cell edge to hide grid lines
+    private static final int BORDER_BAND = 6;
+    // A blob that starts at the blanked frame and runs this far along that edge is a grid line
+    private static final double GRID_LINE_SPAN_RATIO = 0.9;
     private GridLayout sudokuGrid;
     private EditText[] cellArray;
     private Bitmap[] debugCellImages;
@@ -228,7 +232,7 @@ public class SolverActivity extends AppCompatActivity {
         blurred.release();
 
 //        clearBorders(thresh);
-        clearBorderBand(thresh,6);
+        clearBorderBand(thresh, BORDER_BAND);
 
         // Remove isolated specks left by paper texture
         Mat openKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(3, 3));
@@ -301,7 +305,19 @@ public class SolverActivity extends AppCompatActivity {
             int minWidth = Math.max(2, (int) (cell.cols() * 0.04));
             int minHeight = Math.max(4, (int) (cell.rows() * MIN_DIGIT_HEIGHT_RATIO));
 
+            // Grid line leaking past the blanked frame (grid not perfectly aligned to the cell)
+            int innerW = cell.cols() - 2 * BORDER_BAND;
+            int innerH = cell.rows() - 2 * BORDER_BAND;
+            boolean touchesLeftOrRight = rect.x <= BORDER_BAND + 1 ||
+                    rect.x + rect.width >= cell.cols() - BORDER_BAND - 1;
+            boolean touchesTopOrBottom = rect.y <= BORDER_BAND + 1 ||
+                    rect.y + rect.height >= cell.rows() - BORDER_BAND - 1;
+            boolean isGridLine =
+                    (touchesLeftOrRight && rect.height >= innerH * GRID_LINE_SPAN_RATIO) ||
+                            (touchesTopOrBottom && rect.width >= innerW * GRID_LINE_SPAN_RATIO);
+
             boolean validCandidate =
+                    !isGridLine &&
                     area > minArea &&
                             area < maxAllowedArea &&
                             rect.width >= minWidth &&
@@ -336,7 +352,8 @@ public class SolverActivity extends AppCompatActivity {
                         " cell=" + cell.cols() + "x" + cell.rows() +
                         " heightRatio=" + String.format(Locale.US, "%.2f", (double) largestRect.height / cell.rows()) +
                         " areaRatio=" + String.format(Locale.US, "%.3f", largestArea / cellArea) +
-                        " aspect=" + String.format(Locale.US, "%.2f", (double) largestRect.width / largestRect.height));
+                        " aspect=" + String.format(Locale.US, "%.2f", (double) largestRect.width / largestRect.height) +
+                        " at=" + largestRect.x + "," + largestRect.y);
             }
             thresh.release();
             return null;
@@ -347,7 +364,7 @@ public class SolverActivity extends AppCompatActivity {
         thresh.submat(bestRect).copyTo(inkMask.submat(bestRect));
         Mat paperMask = new Mat();
         Core.bitwise_not(thresh, paperMask);
-        clearBorderBand(paperMask, 6);
+        clearBorderBand(paperMask, BORDER_BAND);
 
         double inkLevel = Core.mean(cell, inkMask).val[0];
         double paperLevel = Core.mean(cell, paperMask).val[0];
