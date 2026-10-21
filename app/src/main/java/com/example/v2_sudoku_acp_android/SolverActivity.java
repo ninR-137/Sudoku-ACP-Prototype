@@ -29,6 +29,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class SolverActivity extends AppCompatActivity {
     private static final String TAG = "SolverActivity";
@@ -41,6 +43,7 @@ public class SolverActivity extends AppCompatActivity {
     private SudokuOcr sudokuOcr;
     private boolean solved = false;
     private Button btnSolve;
+    private final ExecutorService solverExecutor = Executors.newSingleThreadExecutor();
 
     static {
         System.loadLibrary("native-lib");
@@ -83,6 +86,7 @@ public class SolverActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        solverExecutor.shutdown();
         if (digitRecognizer != null) {
             digitRecognizer.close();
         }
@@ -117,27 +121,42 @@ public class SolverActivity extends AppCompatActivity {
         Toast.makeText(this, "Scan Complete", Toast.LENGTH_SHORT).show();
     }
 
-    // Flags recognized values that repeat in a row, column or box, since one of them must be misread
-    private void markConflicts() {
-        int blockSize = (int) Math.sqrt(n);
-        if (blockSize == 0) return;
+    // Value of a cell as shown on screen: 0 if empty, -1 if it is not a number from 1 to n
+    private int cellValue(int index) {
+        String text = cellArray[index].getText().toString().trim();
+        if (text.isEmpty()) return 0;
+        try {
+            int value = Integer.parseInt(text);
+            return (value >= 1 && value <= n) ? value : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
 
+    // Flags values that repeat in a row, column or box, since one of them must be wrong
+    private boolean markConflicts() {
+        int blockSize = (int) Math.sqrt(n);
+        if (blockSize == 0) return false;
+
+        boolean found = false;
         for (int i = 0; i < n * n; i++) {
-            String val = cellArray[i].getText().toString();
-            if (val.isEmpty() || val.equals("NA")) continue;
+            int val = cellValue(i);
+            if (val <= 0) continue;
             int r1 = i / n, c1 = i % n;
 
             for (int j = i + 1; j < n * n; j++) {
-                if (!val.equals(cellArray[j].getText().toString())) continue;
+                if (val != cellValue(j)) continue;
                 int r2 = j / n, c2 = j % n;
 
                 boolean sameBox = (r1 / blockSize == r2 / blockSize) && (c1 / blockSize == c2 / blockSize);
                 if (r1 == r2 || c1 == c2 || sameBox) {
                     cellArray[i].setTextColor(Color.RED);
                     cellArray[j].setTextColor(Color.RED);
+                    found = true;
                 }
             }
         }
+        return found;
     }
 
     private void createBoard() {
@@ -192,15 +211,35 @@ public class SolverActivity extends AppCompatActivity {
     }
 
     private void solveWithMCAS() {
-        String puzzle = getBoardString();
-        // algorithm 2 = MCAS, using 4 threads
-        String solution = solveSudokuNative(puzzle, 2, 4);
+        String puzzle = buildPuzzleString();
+        if (puzzle == null) return;
 
-        if (solution != null && !solution.isEmpty() && solution.length() == n * n) {
+        setSolving(true);
+        solverExecutor.execute(() -> {
+            // algorithm 2 = MCAS, using 4 threads
+            String solution = solveSudokuNative(puzzle, 2, 4);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                setSolving(false);
+                showSolution(solution);
+            });
+        });
+    }
+
+    private void setSolving(boolean solving) {
+        btnSolve.setEnabled(!solving);
+        btnSolve.setText(solving ? "Solving..." : "Solve with MCAS");
+        for (EditText cell : cellArray) {
+            cell.setEnabled(!solving);
+        }
+    }
+
+    private void showSolution(String solution) {
+        if (solution != null && solution.length() == n * n) {
             for (int i = 0; i < solution.length(); i++) {
                 char c = solution.charAt(i);
                 if (c != '.') {
-                    cellArray[i].setText(String.valueOf(c));
+                    cellArray[i].setText(String.valueOf(fromSolverChar(c)));
                     cellArray[i].setTextColor(Color.BLACK); // Solution in black
                 }
             }
@@ -211,19 +250,54 @@ public class SolverActivity extends AppCompatActivity {
         }
     }
 
-    private String getBoardString() {
+    // Checks the board and encodes it for the native solver. Returns null, after marking the
+    // offending cells red and telling the user, if the board cannot be solved as entered.
+    private String buildPuzzleString() {
+        if (n != 9 && n != 16 && n != 25) {
+            Toast.makeText(this, "Unsupported grid size: " + n, Toast.LENGTH_SHORT).show();
+            return null;
+        }
+
+        // Drop marks from earlier checks so only current problems are red
+        for (EditText cell : cellArray) {
+            if (cell.getCurrentTextColor() == Color.RED) cell.setTextColor(Color.BLACK);
+        }
+
         StringBuilder sb = new StringBuilder();
-        for (EditText et : cellArray) {
-            String val = et.getText().toString();
-            if (val.isEmpty()) {
-                sb.append(".");
+        int invalid = 0;
+        for (int i = 0; i < cellArray.length; i++) {
+            int value = cellValue(i);
+            if (value < 0) {
+                cellArray[i].setTextColor(Color.RED);
+                invalid++;
             } else {
-                // The C++ Board constructor handles 9x9 (1-9), 16x16 (0-f), 25x25 (a-y)
-                // We assume the user or OCR has entered valid characters for the size.
-                sb.append(val.toLowerCase());
+                sb.append(value == 0 ? '.' : toSolverChar(value));
             }
         }
+
+        if (invalid > 0) {
+            Toast.makeText(this, invalid + " cell(s) are not a number from 1 to " + n, Toast.LENGTH_LONG).show();
+            return null;
+        }
+        if (markConflicts()) {
+            Toast.makeText(this, "A value repeats in a row, column or box", Toast.LENGTH_LONG).show();
+            return null;
+        }
         return sb.toString();
+    }
+
+    // The C++ Board alphabet for values 1..n: 9x9 uses '1'-'9', 16x16 '0'-'9' then 'a'-'f',
+    // 25x25 'a'-'y'
+    private char toSolverChar(int value) {
+        if (n == 9) return (char) ('0' + value);
+        if (n == 16) return value <= 10 ? (char) ('0' + value - 1) : (char) ('a' + value - 11);
+        return (char) ('a' + value - 1);
+    }
+
+    private int fromSolverChar(char c) {
+        if (n == 9) return c - '0';
+        if (n == 16) return (c >= '0' && c <= '9') ? c - '0' + 1 : c - 'a' + 11;
+        return c - 'a' + 1;
     }
 
     // Saves the scanned image plus the board as currently shown (after manual corrections) as a
@@ -240,12 +314,12 @@ public class SolverActivity extends AppCompatActivity {
 
         StringBuilder grid = new StringBuilder();
         for (int i = 0; i < cellArray.length; i++) {
-            String val = cellArray[i].getText().toString().trim();
-            if (val.equals("NA")) {
-                Toast.makeText(this, "Correct the NA cells first", Toast.LENGTH_SHORT).show();
+            int value = cellValue(i);
+            if (value < 0) {
+                Toast.makeText(this, "Correct the unreadable cells first", Toast.LENGTH_SHORT).show();
                 return;
             }
-            grid.append(val.isEmpty() ? "." : val);
+            grid.append(value == 0 ? "." : String.valueOf(value));
             grid.append((i + 1) % n == 0 ? "\n" : " ");
         }
 
