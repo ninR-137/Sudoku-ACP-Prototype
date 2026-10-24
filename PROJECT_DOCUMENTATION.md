@@ -48,8 +48,8 @@ Only the files that make up the app are listed.
 | Path | Purpose |
 |---|---|
 | `app/src/main/java/com/example/v2_sudoku_acp_android/MainActivity.java` | Home screen: starts camera or gallery input, previews and enhances the board image, opens the solver |
-| `.../CameraActivity.java` | Live camera scanning with automatic board and grid-size detection |
-| `.../ProcessingActivity.java` | Gallery input: board selection, perspective correction, grid size, optional filters |
+| `.../CameraActivity.java` | Camera with live board and grid-size detection; takes a full-resolution photo of the puzzle |
+| `.../ProcessingActivity.java` | Board selection, perspective correction, grid size and optional filters, for camera and gallery images |
 | `.../EditImageActivity.java`, `PaintView.java` | Manual paint/erase editor for the board image |
 | `.../SudokuOcr.java` | Cuts the board into cells, decides which cells contain a digit, prepares digits for the model |
 | `.../DigitRecognizer.java` | Loads the TFLite model and classifies one digit image |
@@ -78,26 +78,26 @@ On first launch the app asks for camera access. It is only needed for the **Came
 
 ```
 Home screen ──Camera──▶ Camera screen ──Capture──┐
-            └─Gallery─▶ Photo picker ─▶ Board selection screen ──Finish──┤
-                                                                          ▼
-                                       Home screen (preview + adjustments)
-                                                                          │ Process Grid
-                                                                          ▼
-                                                             Solver screen ──Solve with MCAS──▶ Solution
+            └─Gallery─▶ Photo picker ────────────┴─▶ Board selection screen ──Finish──┐
+                                                                                     ▼
+                                                  Home screen (preview + adjustments)
+                                                                                     │ Process Grid
+                                                                                     ▼
+                                                        Solver screen ──Solve with MCAS──▶ Solution
 ```
 
 ### 3.3 Option A: Scan with the camera
 
 1. On the home screen, tap **Camera**.
-2. Point the camera at the puzzle. The screen shows the processed (black-and-white) view, with the detected board outlined in green and the detected size at the top (for example "9x9 Grid").
-3. If the size is wrong or keeps changing, choose it yourself: **9x9**, **16x16** or **25x25** locks the size; **Auto** detects it.
-4. If the outline does not appear, adjust the **Threshold** slider (it controls how dark a line must be to count as part of the grid).
-5. Tap **Capture** once the outline matches the puzzle. You return to the home screen with the board shown.
+2. Point the camera at the puzzle so the whole grid, including its outer border, is in view. Hold the phone as straight above the page as you can, in good, even light.
+3. The detected board is outlined in green and the detected size appears at the top (for example "9x9 Grid"). If the size is wrong or keeps changing, choose it yourself: **9x9**, **16x16** or **25x25** locks it; **Auto** detects it. If no outline appears, adjust the **Threshold** slider. Detection is only a guide; you can capture without it.
+4. Tap **Capture**.
+5. The photo opens on the board selection screen, with the detected size preselected. Continue from step 2 of Option B below.
 
 ### 3.4 Option B: Load a photo from the gallery
 
 1. On the home screen, tap **Gallery** and pick a photo.
-2. The app highlights every rectangle it finds, labelled **#1**, **#2** and so on. Tap the one that is the puzzle. If the puzzle is not highlighted, the photo needs a clearer, fully visible border.
+2. The app highlights every rectangle it finds, labelled **#1**, **#2** and so on (largest first). Tap inside the puzzle; if it sits inside another highlighted rectangle, such as the page, the smaller one (the puzzle) is selected. If the puzzle is not highlighted, the photo needs a clearer, fully visible border.
 3. The board is flattened into a square. Choose the grid size: **9x9**, **16x16** or **25x25**. A grid overlay shows where cells will be cut; it should line up with the printed grid.
 4. Optional filters, each toggled on and off, some with a slider:
    - **Original**: removes all filters.
@@ -159,18 +159,26 @@ Screens pass the board image to each other as a JPEG file in the app's private e
 
 ### 4.2 Image acquisition
 
-**Camera path (`CameraActivity`)**
+**Camera (`CameraActivity`)**
 
+Live detection, for feedback only:
 1. CameraX delivers preview frames for analysis (640x480 by default); only the brightness (grayscale) channel is used.
-2. Each frame is converted to black and white with Gaussian adaptive thresholding. The threshold slider sets the threshold offset.
-3. Contours are found. The largest contour (area over 5,000 px) that simplifies to four corners is taken as the board.
-4. **Grid-size estimation:** the contours directly inside the board are treated as cells. The board width divided by the median cell width gives an estimate, which is rounded to the nearest of 9, 16 or 25 (rejected if more than 4 away). The size is only shown once the same value wins a majority of the last 20 frames. A manual lock overrides this.
-5. On **Capture**, the black-and-white board is perspective-warped to 500x500 px and saved.
+2. Each frame is converted to black and white with Gaussian adaptive thresholding (the threshold slider sets the offset), and contours are found. The largest contour (area over 5,000 px) that simplifies to four corners is taken as the board and outlined on the grayscale frame.
+3. **Grid-size estimation:** the contours directly inside the board are treated as cells. The board width divided by the median cell width gives an estimate, rounded to the nearest of 9, 16 or 25 (rejected if more than 4 away). The size is only shown once the same value wins a majority of the last 20 frames. A manual lock overrides this.
 
-**Gallery path (`ProcessingActivity`)**
+Capture: on **Capture** it saves a full-resolution color photo as `camera_photo.jpg`, using quality-priority capture mode and a resolution capped near 12 MP (4032x3024, 4:3). The cap keeps photos from phones with 50–200 MP sensors small enough to process in memory. The photo's orientation is stored in its EXIF data, which OpenCV applies when loading it. `MainActivity` then opens `ProcessingActivity` with the photo and the detected grid size, which is preselected there, so camera and gallery images take exactly the same path from here on.
 
-1. The full-resolution photo is loaded.
-2. Board candidates are found with Gaussian blur, adaptive thresholding and contour detection: every contour over 10,000 px that simplifies to four corners is highlighted.
+**Board selection (`ProcessingActivity`)**
+
+1. The photo is loaded at full resolution (from a file path for camera photos, or a content URI for gallery picks).
+2. Board candidates are found on a copy reduced to 1000 px (`findBoardCandidates`). Shrinking averages out sensor grain, which matters in low light, and makes the result independent of photo size:
+   1. the brightness range is stretched to 0–255, so faint lines in dim photos stay darker than the threshold margin;
+   2. Gaussian adaptive thresholding with a neighbourhood that scales with the image (2% of its width) and an offset of 5, the same settings as the camera's live detection;
+   3. morphological closing joins small gaps in the lines;
+   4. contours are found including nested ones, so a board inside a page border, or one merged with background noise, is still found. Contours above 1.6% of the image that simplify to a convex four-cornered shape become candidates;
+   5. a candidate inside another candidate more than 8 times its size is dropped (the boxes and cells of a board), as is one inside another of nearly the same size (over 80%, the inner edge of the same thick border).
+
+   The corners are scaled back to the full photo, and candidates are numbered largest first.
 3. The tapped candidate's corners are sorted (top-left, top-right, bottom-right, bottom-left) and the board is perspective-warped to 1000x1000 px.
 4. Optional filters (section 3.4) are applied in a fixed order: grayscale, median, threshold, heal (morphological closing), Canny, blur.
 5. On **Finish**, the grid overlay is drawn onto the image, which is converted to grayscale and saved.
@@ -356,8 +364,7 @@ To build variety quickly, photograph the same puzzle under several conditions an
 ## 6. Known limitations
 
 - **Large grids from photos:** the model reads one digit (0–9) per cell, so the values 10–25 on 16x16 and 25x25 boards cannot be recognized and must be typed in.
-- **Camera path image quality:** the capture is a 640x480 preview frame, saved already converted to black and white, at 500x500 px. Detail is limited, especially for larger grids, and the OCR contrast check cannot help because no gray levels remain.
-- **Gallery path resolution:** boards are warped to 1000x1000 px with linear interpolation, about 111 px per cell on 9x9 but only 40 px on 25x25. The later upscaling adds no detail.
+- **Board resolution:** on the board selection screen, boards are warped to 1000x1000 px with linear interpolation, about 111 px per cell on 9x9 but only 40 px on 25x25. The later upscaling adds no detail.
 - **Even-grid cell cutting:** cells are cut on an evenly spaced grid, which assumes a flat page. Curved pages can push grid lines into cells; the grid-line test handles most but not all cases.
 - **Repeated compression:** images are saved as JPEG between steps; editing or cropping applies the enhancement filters again on top of an already filtered image.
 - **Screen rotation** on the solver screen re-runs recognition and discards manual corrections.
@@ -370,38 +377,143 @@ To build variety quickly, photograph the same puzzle under several conditions an
 
 ### 7.1 Changes so far
 
-**Earlier work**
-- Image pipeline with camera and gallery input, board detection, perspective correction, enhancement controls and a manual image editor.
-- Several digit-recognition models trained and compared; the current model uses augmentation (translation, rotation, zoom). Outdated models were removed from the assets.
-- Adaptive thresholding chosen over Otsu thresholding after Otsu produced ghost digits.
-- C++ MCAS solver integrated through JNI and CMake.
+Each change lists the problem it addresses, the cause where known, and what was changed. Changes are grouped by area, roughly in the order they were made. Where the reason was not recorded in the commit history, this is stated.
 
-**Recognition improvements**
-- **False digits in empty cells fixed.** On textured or newspaper paper, paper grain was thresholded into blobs and classified as digits. Added a contrast check (ink must be at least 40 gray levels darker than the paper), a minimum blob height (25% of the cell) and speck removal (3x3 morphological opening).
-- **Small handwritten digits restored.** The first height limit (35%) emptied a small handwritten 5; it was lowered to 25%, and rejected blobs are now logged with the reason.
-- **Leaked grid lines rejected.** On a curved page, the cell border was read as a 1. Blobs that start at the cell edge and run along it are now treated as grid lines.
-- **Conflict highlighting.** Values repeated in a row, column or box are shown in red, so misreads are easy to spot.
+#### Earlier work (July–September 2026)
 
-**Testing infrastructure**
-- Recognition code moved from `SolverActivity` into the standalone `SudokuOcr` class.
-- `OcrAccuracyTest` added, with a fixture export (long-press Solve) for building labelled test data. The test set now holds 7 labelled 9x9 images.
-- `SolverActivityTest` added.
-- Test dependencies (JUnit, AndroidX Test, Espresso) added to the build.
+**Debug view for processed cells**
+- *Problem:* when a digit was misread, there was no way to see what the model had actually received, so misreads could not be diagnosed.
+- *Change:* long-pressing a cell on the solver screen shows the image passed to the model, with an option to save it to the gallery.
+- *Result:* this became the main tool for tuning recognition.
 
-**Solving**
-- **Board validation before solving.** Invalid values and repeats are marked and the solver is not called. Previously, invalid input reached the C++ code and failed silently.
-- **Solve moved off the main thread.** Previously the screen froze for up to 10 seconds, long enough to trigger Android's "app not responding" dialog.
-- **Large-grid values supported.** The grid now uses plain numbers 1 to n and converts them to the solver's alphabet. Previously, typing a two-digit value such as 12 broke the board.
-- **Export bug fixed.** On 9x9 boards an unreadable cell shows "N" (cells hold one character), which the fixture export did not recognize; it now uses the same validation as Solve.
+**Hollow digits after thresholding: switch to Otsu**
+- *Problem:* after black-and-white conversion, digits came out hollow (only their outlines remained), and the model could not read them.
+- *Cause:* adaptive thresholding compares each pixel with the average of a small neighbourhood (15 px at the time). Inside a stroke thicker than that neighbourhood, the average is the stroke itself, so its middle is not marked as ink.
+- *Change:* switched to Otsu thresholding, which picks one threshold for the whole cell.
 
-**Environment and documentation**
-- Emulator storage increased to 12 GB; arm64-only builds documented.
-- `CLAUDE.md` and this document added.
+**Ghost digits with Otsu: back to adaptive thresholding, with a larger neighbourhood**
+- *Problem:* Otsu produced "ghost numbers": digits detected in cells that were empty.
+- *Cause:* Otsu always splits a cell into two groups, even when the cell holds only paper, so shading and texture are marked as ink. A fallback for cells with too little ink was tried first.
+- *Change:* returned to adaptive thresholding, but with a neighbourhood large enough to cover thick strokes (39 px, then tuned to 49 px). This avoids hollow digits without Otsu's ghosting.
+
+**Border cleanup changed from flood fill to a fixed band**
+- *Problem:* remnants of grid lines at the cell edges were being taken as digits.
+- *Change:* the original cleanup erased everything connected to the cell edge (flood fill); it was replaced by blanking a fixed 6 px band around each cell.
+- *Reason:* not recorded. A likely cause is that flood fill also erases any digit touching a grid line, which is common with handwriting.
+
+**Digit model trained on printed as well as handwritten digits**
+- *Problem:* the first model recognized printed (typeface) digits poorly.
+- *Cause:* it was trained only on MNIST, which contains handwritten digits.
+- *Change:* the model was retrained on MNIST combined with TMNIST (typeface digits), and later with data augmentation (small random translation, rotation and zoom) for robustness. A model with 0.99 accuracy replaced earlier versions, and outdated models were removed from the app.
+
+**MCAS solver integrated through JNI**
+- *Problem:* the app needed the thesis solver, MCAS, which is written in C++.
+- *Change:* the solver source was added to the project, with a JNI bridge (`native-lib.cpp`) and a CMake build. `std::random_shuffle`, which newer C++ standards removed, was replaced with `std::shuffle` so the code compiles with Android's compiler.
+
+**Native library built for all processor types**
+- *Problem:* the native library did not match the device's processor type (x86 emulator versus arm64 phones), so the solver could not be loaded.
+- *Change:* the build now compiles the library for all four Android processor types (arm64-v8a, armeabi-v7a, x86_64 and x86), with C++17.
+
+**Other earlier changes** (reasons not recorded): an invert-colors option on the home screen, and several adjustments to the model's confidence threshold (now 0.30).
+
+#### Recognition reliability (October 2026)
+
+**False digits in empty cells**
+- *Problem:* on textured or newspaper paper, empty cells were read as random digits.
+- *Cause:* adaptive thresholding only asks whether a pixel is slightly darker than its surroundings (by 3 gray levels). In an empty cell, paper grain and print showing through from the other side pass that test. The size filter then accepted these blobs, and the model had to choose a digit for them.
+- *Change:* three checks decide that a cell is empty before the model runs:
+  - the blob must be clearly darker than the paper around it (at least 40 gray levels);
+  - it must be at least 25% of the cell's height;
+  - isolated specks are removed first with a 3x3 morphological opening.
+- *Result:* the textured newspaper image went from many false digits to fully correct.
+
+**Small handwritten digits treated as empty**
+- *Problem:* after the fix above, a small, flat handwritten 5 was read as an empty cell.
+- *Cause:* the first height limit (35% of the cell) was too strict for small handwriting.
+- *Change:* lowered to 25%. Rejected blobs are now logged with their size and position, so a rejection can be explained.
+
+**Grid lines read as digits on curved pages**
+- *Problem:* on a photo of a bowed page, a cell's border was read as a 1.
+- *Cause:* cells are cut on an even grid, which assumes a flat page. On a curved page the real grid lines fall inside the cell, past the blanked band, and pass every other check because they are real ink.
+- *Change:* a blob that starts at the cell's edge and runs along most of it (90%) is treated as a grid line. A digit that merely touches the edge is still accepted.
+
+**Conflict highlighting**
+- *Problem:* a misread digit looked like any other, so errors were easy to miss before solving.
+- *Change:* a value repeated in a row, column or box is shown in red. On 9x9 boards a predicted 0, which is never valid, is shown as unreadable.
+
+#### Testing infrastructure
+
+- *Problem:* each recognition fix was checked by eye on the one photo that exposed the problem. One fix broke a previously working image (the small handwritten 5), showing that fixes were trading one failure for another.
+- *Change:*
+  - recognition code moved out of the solver screen into a standalone class, `SudokuOcr`, so it can be tested;
+  - `OcrAccuracyTest` measures cell-level accuracy over a set of labelled images and classifies every error;
+  - long-pressing Solve exports the current image and corrected grid as a labelled test case;
+  - `SolverActivityTest` checks that valid puzzles solve correctly and invalid ones are rejected;
+  - the test libraries were added to the build.
+- *Result:* changes can now be measured against a growing test set (7 labelled 9x9 images so far) rather than judged on one photo. These numbers can also be reported in the thesis.
+
+#### Solving
+
+**Board validation before solving**
+- *Problem:* unreadable cells ("N"/"NA") and invalid entries were sent straight to the solver.
+- *Cause:* the solver expects exactly one valid character per cell. Anything else changed the length of the puzzle string, and the C++ code rejected the board silently, showing only "No solution found".
+- *Change:* pressing Solve first checks that every cell is empty or a number from 1 to the grid size, and that no value repeats. Problem cells turn red with an explanation, and the solver is not called.
+
+**Solving moved off the main thread**
+- *Problem:* the screen froze for up to 10 seconds while solving.
+- *Cause:* the solver ran on Android's main (user interface) thread; Android shows an "app not responding" dialog after about 5 seconds.
+- *Change:* the solver runs on a background thread. The button shows "Solving..." and the grid is locked until it finishes.
+
+**Two-digit values on 16x16 and 25x25 boards**
+- *Problem:* typing a value such as 12 on a 16x16 board broke the puzzle.
+- *Cause:* the solver uses one character per cell (16x16: `0`–`9`, then `a`–`f`; 25x25: `a`–`y`), and the cell text was passed to it unchanged.
+- *Change:* the grid now always uses plain numbers from 1 to n, and the app converts them to and from the solver's characters. Typed 16x16 boards now solve (tested), and 25x25 is supported.
+
+**Test-data export saving invalid answer keys**
+- *Problem:* the export could save an unreadable cell into the answer file, which would then crash the accuracy test.
+- *Cause:* on 9x9 boards each cell holds one character, so an unreadable cell shows "N", not "NA", and the export only checked for "NA".
+- *Change:* the export now uses the same validation as Solve.
+
+#### Camera capture
+
+**Full-resolution photo instead of a preview frame**
+- *Problem:* camera scans gave noticeably worse input than gallery photos.
+- *Cause:* Capture saved a 640x480 preview frame, already converted to black and white, at 500x500 px. Detail was limited, especially for larger grids, and with no gray levels left, the recognizer's contrast check could not work.
+- *Change:* Capture now takes a full-resolution color photo (capped near 12 MP, so photos from 50–200 MP sensors don't run out of memory). The photo goes through the same board selection screen as gallery images, so both inputs reach the recognizer in the same form. On existing photos the new flattened boards were read 79–81/81 cells correctly.
+
+**Live grid detection kept as a guide**
+- *Problem:* the board outline and grid size shown while aiming are useful feedback, especially to judge low-light conditions, but the black-and-white view was hard to read.
+- *Change:* the camera was briefly simplified to a plain camera. Live detection was then restored as a guide only: the outline is drawn on the normal (grayscale) camera view, capture is always allowed, and the detected grid size is preselected on the board selection screen.
+
+#### Board detection in low light
+
+- *Problem:* in low light, the board selection screen failed to find the board, even when the camera's live detection found it.
+- *Cause:* the selection screen applied settings suited to small images to the full 12 MP photo:
+  - a fixed 11 px threshold neighbourhood, smaller than a grid line in a large photo;
+  - a fixed margin smaller than the sensor grain of a dim photo;
+  - no repair of broken lines;
+  - only the outermost outlines checked, so a board connected to the page edge by grain or shadow was never seen.
+
+  The live detection works on a small frame, which averages the grain away, and gets about 30 attempts per second.
+- *Change:* the selection screen now detects on a copy reduced to 1000 px:
+  - the brightness range is stretched first, so faint lines in dim photos survive;
+  - the threshold neighbourhood scales with the image;
+  - small gaps in lines are joined;
+  - nested outlines are checked, with filtering that hides a board's boxes and cells and duplicate outlines of thick borders.
+
+  The corners are mapped back to the full photo. A tap inside several outlines selects the smallest, which is the board rather than the page.
+- *Result:* on 5 photos with simulated low light (a quarter of the brightness plus sensor grain, at 12 MP), the board was found in all 5, against 0 before. In normal light it was found in all 5, including one the old method missed.
+
+#### Development environment
+
+- **Emulator storage:** the app (about 180 MB with all processor types) no longer fit on the emulator's 6 GB of storage, so installs failed. Storage was raised to 12 GB, and builds for a single processor type (`-Pandroid.injected.build.abi=arm64-v8a`) are documented.
+- **Wireless debugging:** the phone could not be reached on the original Wi-Fi network, most likely because the router blocks devices from talking to each other. Both devices were moved to a phone hotspot and paired with a pairing code.
+- **Documentation:** `CLAUDE.md` (guidance for AI coding assistants) and this document were added.
 
 ### 7.2 Action points
 
 **Immediate**
-1. Commit the pending changes in the working tree (`CLAUDE.md` and the staged removal of one fixture).
+1. Test the new camera capture and board detection on the phone (upright and sideways photos, low light), then commit the changes.
 2. Run `OcrAccuracyTest` on the 7 fixtures, record the per-image results, and rename the fixtures by condition.
 3. Set `MIN_ACCURACY` just below the current 9x9 accuracy so later changes that break a working image fail the test.
 
@@ -411,12 +523,11 @@ To build variety quickly, photograph the same puzzle under several conditions an
 6. **Two-digit recognition for 16x16 and 25x25:** keep every accepted blob in a cell, classify side-by-side blobs separately and combine them (for example 1 and 6 into 16), discarding values above n.
 
 **Quality improvements (measure each with `OcrAccuracyTest`)**
-7. Camera path: capture a full-resolution photo and save it in grayscale rather than thresholded.
-8. Gallery path: warp at a size based on the grid (about 100 px per cell) with area interpolation, drop the upscale, and save intermediate images as PNG.
-9. Cut cells along detected grid lines rather than an even grid, if test results show edge errors on curved pages.
-10. Call `Board::CheckSolution` before reporting success, and return the best state from simulated annealing.
-11. Keep the board on screen rotation.
+7. Board selection: warp at a size based on the grid (about 100 px per cell) with area interpolation, drop the upscale, and save intermediate images as PNG.
+8. Cut cells along detected grid lines rather than an even grid, if test results show edge errors on curved pages.
+9. Call `Board::CheckSolution` before reporting success, and return the best state from simulated annealing.
+10. Keep the board on screen rotation.
 
 **Optional**
-12. On-device benchmark of MCAS against backtracking on 9x9, 16x16 and 25x25 instances, to support the thesis claim that MCAS is practical on phones.
-13. Remove the unused `GalleryActivity` and `QuadrilateralSelectionView`, and retire the outdated `IMAGE_PROCESSING_DOCUMENTATION.md`.
+11. On-device benchmark of MCAS against backtracking on 9x9, 16x16 and 25x25 instances, to support the thesis claim that MCAS is practical on phones.
+12. Remove the unused `GalleryActivity` and `QuadrilateralSelectionView`, and retire the outdated `IMAGE_PROCESSING_DOCUMENTATION.md`.
