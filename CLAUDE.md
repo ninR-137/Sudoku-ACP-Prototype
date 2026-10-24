@@ -39,6 +39,8 @@ A fixture is the image exactly as `SolverActivity` receives it plus a same-named
 adb pull /sdcard/Android/data/com.example.v2_sudoku_acp_android/files/ocr_fixtures app/src/androidTest/assets/
 ```
 
+`SolverActivityTest` (also instrumented) launches the solver screen without an image, types in a 9x9 and a 16x16 puzzle and checks the solved board, and checks that invalid boards are rejected. Drop the `-e class ...` argument from the `am instrument` command to run every instrumented test.
+
 The other tests are the template `ExampleUnitTest` / `ExampleInstrumentedTest`.
 
 Toolchain: AGP 8.7.3, Gradle 8.12, Java 11 source level (daemon JVM 21 via foojay), compileSdk/targetSdk 35, minSdk 24, C++17. Dependency versions live in `gradle/libs.versions.toml`; the `tensorflow-lite*` aliases actually resolve to `com.google.ai.edge.litert` artifacts.
@@ -84,9 +86,11 @@ The threshold constants here have been tuned by hand across several commits (Ots
 - 16x16: `0`-`9` then `a`-`f`, where `0` means value 1
 - 25x25: `a`-`y`
 
-`SolverActivity.getBoardString()` concatenates the raw cell text, so anything that is not exactly one valid character per cell (an `NA` cell, a two-digit entry) changes the length and the board is rejected. The digit model only outputs 0-9, so 16x16 and 25x25 OCR does not yet produce this alphabet. An empty return string means failure or timeout.
+The UI works in decimal: every cell holds a number from 1 to n. `SolverActivity.buildPuzzleString()` validates the board (each cell empty or 1..n, no value repeated in a row, column or box; offenders are marked red and the native call is skipped) and `toSolverChar` / `fromSolverChar` translate to and from the alphabet above. An empty return string means failure or timeout.
 
-The solve call is made synchronously on the UI thread.
+The solve runs on a single-thread executor; the button and cells are disabled until it returns. The native call cannot be cancelled, so it runs to completion (at most the 10 s timeout) even if the activity is destroyed.
+
+OCR is still the limit for large grids: the digit model reads one 0-9 digit per cell, so two-digit clues on 16x16 and 25x25 boards have to be typed in.
 
 `Board` holds a `ValueSet` (bitset of candidates) per cell; `SetCell` propagates constraints, which is the "constraint propagation" part of MCAS that both ACS variants rely on.
 
