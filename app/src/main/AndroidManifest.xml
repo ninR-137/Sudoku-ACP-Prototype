@@ -32,9 +32,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- CameraX camera screen, disabled: the Camera button opens the phone's camera app instead.
+             Uncomment together with CameraActivity.java to restore it.
         <activity
             android:name=".CameraActivity"
             android:exported="false" />
+        -->
         <activity
             android:name=".SolverActivity"
             android:exported="false" />

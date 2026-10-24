@@ -122,9 +122,13 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnCamera.setOnClickListener(v -> {
+            // The permission is still needed: Android refuses to open the camera app for an app that
+            // declares CAMERA in its manifest without having been granted it
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                Intent intent = new Intent(MainActivity.this, CameraActivity.class);
-                cameraResultLauncher.launch(intent);
+                // CameraX camera screen, disabled (see CameraActivity.java):
+                // Intent intent = new Intent(MainActivity.this, CameraActivity.class);
+                // cameraResultLauncher.launch(intent);
+                openPhoneCamera();
             } else {
                 checkCameraPermission();
             }
@@ -191,12 +195,48 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    private final ActivityResultLauncher<Intent> cameraResultLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                    btnEditImage.setVisibility(View.VISIBLE);
-                    handleProcessingResult(result.getData());
+    // CameraX camera screen result, disabled (see CameraActivity.java):
+    // private final ActivityResultLauncher<Intent> cameraResultLauncher = registerForActivityResult(
+    //         new ActivityResultContracts.StartActivityForResult(),
+    //         result -> {
+    //             if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+    //                 // The photo goes through board selection like a gallery image
+    //                 String photoPath = result.getData().getStringExtra("image_path");
+    //                 if (photoPath != null) {
+    //                     Intent intent = new Intent(MainActivity.this, ProcessingActivity.class);
+    //                     intent.putExtra("image_path", photoPath);
+    //                     // Grid size detected live by the camera, 0 if none; preselected on the next screen
+    //                     intent.putExtra("grid_size", result.getData().getIntExtra("grid_size", 0));
+    //                     this.galleryResultLauncher.launch(intent);
+    //                 }
+    //             }
+    //         }
+    // );
+
+    // Where the phone's camera app saves the photo
+    private File cameraPhotoFile() {
+        return new File(getExternalFilesDir(null), "camera_photo.jpg");
+    }
+
+    // Opens the phone's own camera app, which saves the photo to cameraPhotoFile()
+    private void openPhoneCamera() {
+        Uri photoUri = androidx.core.content.FileProvider.getUriForFile(
+                this, getPackageName() + ".fileprovider", cameraPhotoFile());
+        try {
+            takePictureLauncher.launch(photoUri);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "No camera app found", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private final ActivityResultLauncher<Uri> takePictureLauncher = registerForActivityResult(
+            new ActivityResultContracts.TakePicture(),
+            saved -> {
+                if (saved) {
+                    // The photo goes through board selection like a gallery image
+                    Intent intent = new Intent(MainActivity.this, ProcessingActivity.class);
+                    intent.putExtra("image_path", cameraPhotoFile().getAbsolutePath());
+                    this.galleryResultLauncher.launch(intent);
                 }
             }
     );

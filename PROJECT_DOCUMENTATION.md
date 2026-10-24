@@ -30,7 +30,7 @@ Android prototype that reads a Sudoku puzzle from a photo, recognizes the clues 
 | Java | 11 (source level) | All app code |
 | Android SDK | compileSdk / targetSdk 35, minSdk 24 (Android 7.0) | Platform |
 | OpenCV (Android SDK, Java bindings) | 4.10.0 | Board detection, perspective correction, filtering, thresholding, contours, morphology |
-| CameraX | 1.4.1 | Live camera preview and frame analysis |
+| CameraX | 1.4.1 | Kept for the disabled in-app camera screen (`CameraActivity`); photos are now taken with the phone's camera app |
 | LiteRT (TensorFlow Lite) | 2.1.6 (support/metadata 1.4.2) | On-device digit classification |
 | Android NDK + CMake | CMake 3.22.1, C++17 | Compiling the C++ solver into a native library |
 | JNI (Java Native Interface) | — | Calling the C++ solver from Java |
@@ -48,7 +48,7 @@ Only the files that make up the app are listed.
 | Path | Purpose |
 |---|---|
 | `app/src/main/java/com/example/v2_sudoku_acp_android/MainActivity.java` | Home screen: starts camera or gallery input, previews and enhances the board image, opens the solver |
-| `.../CameraActivity.java` | Camera with live board and grid-size detection; takes a full-resolution photo of the puzzle |
+| `.../CameraActivity.java` | **Disabled (commented out).** Previous in-app camera with live board detection, kept for reference; restore steps are at the top of the file |
 | `.../ProcessingActivity.java` | Board selection, perspective correction, grid size and optional filters, for camera and gallery images |
 | `.../EditImageActivity.java`, `PaintView.java` | Manual paint/erase editor for the board image |
 | `.../SudokuOcr.java` | Cuts the board into cells, decides which cells contain a digit, prepares digits for the model |
@@ -72,7 +72,7 @@ The rest of `app/src/main/cpp/` (Flask and React web apps, Python batch scripts,
 
 ### 3.1 Permissions
 
-On first launch the app asks for camera access. It is only needed for the **Camera** option; the **Gallery** option uses Android's photo picker and needs no permission.
+On first launch the app asks for camera access. It is needed for the **Camera** option: Android only opens the camera app for an app holding this permission when the app declares it. The **Gallery** option uses Android's photo picker and needs no permission.
 
 ### 3.2 Overview of the flow
 
@@ -88,11 +88,10 @@ Home screen ──Camera──▶ Camera screen ──Capture──┐
 
 ### 3.3 Option A: Scan with the camera
 
-1. On the home screen, tap **Camera**.
-2. Point the camera at the puzzle so the whole grid, including its outer border, is in view. Hold the phone as straight above the page as you can, in good, even light.
-3. The detected board is outlined in green and the detected size appears at the top (for example "9x9 Grid"). If the size is wrong or keeps changing, choose it yourself: **9x9**, **16x16** or **25x25** locks it; **Auto** detects it. If no outline appears, adjust the **Threshold** slider. Detection is only a guide; you can capture without it.
-4. Tap **Capture**.
-5. The photo opens on the board selection screen, with the detected size preselected. Continue from step 2 of Option B below.
+1. On the home screen, tap **Camera**. The phone's own camera app opens.
+2. Point the camera at the puzzle so the whole grid, including its outer border, is in view. Hold the phone as straight above the page as you can. The camera app's features, such as night mode, can be used as normal.
+3. Take the photo and confirm it in the camera app (for example with a ✓ or **OK** button, depending on the phone).
+4. The photo opens on the board selection screen. Continue from step 2 of Option B below.
 
 ### 3.4 Option B: Load a photo from the gallery
 
@@ -159,23 +158,20 @@ Screens pass the board image to each other as a JPEG file in the app's private e
 
 ### 4.2 Image acquisition
 
-**Camera (`CameraActivity`)**
+**Camera (phone's camera app)**
 
-Live detection, for feedback only:
-1. CameraX delivers preview frames for analysis (640x480 by default); only the brightness (grayscale) channel is used.
-2. Each frame is converted to black and white with Gaussian adaptive thresholding (the threshold slider sets the offset), and contours are found. The largest contour (area over 5,000 px) that simplifies to four corners is taken as the board and outlined on the grayscale frame.
-3. **Grid-size estimation:** the contours directly inside the board are treated as cells. The board width divided by the median cell width gives an estimate, rounded to the nearest of 9, 16 or 25 (rejected if more than 4 away). The size is only shown once the same value wins a majority of the last 20 frames. A manual lock overrides this.
+`MainActivity` opens the phone's own camera app with Android's standard image-capture request (`ActivityResultContracts.TakePicture`). The camera app saves the full-resolution photo directly to `camera_photo.jpg` in the app's storage, which it is given access to through the app's `FileProvider`. When the user confirms the photo, `MainActivity` opens `ProcessingActivity` with it, so camera and gallery images take exactly the same path from here on. The photo's orientation is stored in its EXIF data, which OpenCV applies when loading it.
 
-Capture: on **Capture** it saves a full-resolution color photo as `camera_photo.jpg`, using quality-priority capture mode and a resolution capped near 12 MP (4032x3024, 4:3). The cap keeps photos from phones with 50–200 MP sensors small enough to process in memory. The photo's orientation is stored in its EXIF data, which OpenCV applies when loading it. `MainActivity` then opens `ProcessingActivity` with the photo and the detected grid size, which is preselected there, so camera and gallery images take exactly the same path from here on.
+The previous in-app camera screen (`CameraActivity`, built on CameraX, with live board and grid-size detection while aiming) is commented out but kept in the project. The steps to restore it are at the top of `CameraActivity.java`.
 
 **Board selection (`ProcessingActivity`)**
 
-1. The photo is loaded at full resolution (from a file path for camera photos, or a content URI for gallery picks).
+1. The photo is loaded at full resolution (from a file path for camera photos, or a content URI for gallery picks). If its longest side exceeds 4032 px, it is shrunk to that size (about 12 MP): camera apps can save 50–200 MP photos, which are too large to display (Android refuses images over about 100 MB) or process quickly.
 2. Board candidates are found on a copy reduced to 1000 px (`findBoardCandidates`). Shrinking averages out sensor grain, which matters in low light, and makes the result independent of photo size:
-   1. the brightness range is stretched to 0–255, so faint lines in dim photos stay darker than the threshold margin;
+   1. if the image is very flat (its brightness range is under 100 gray levels, as in an underexposed photo), the range is stretched to 0–255, so faint lines stay darker than the threshold margin. Normal photos, including dim ones the camera has brightened (measured ranges 125–182), are left alone, because stretching them amplifies grain and shading and breaks the board outline;
    2. Gaussian adaptive thresholding with a neighbourhood that scales with the image (2% of its width) and an offset of 5, the same settings as the camera's live detection;
    3. morphological closing joins small gaps in the lines;
-   4. contours are found including nested ones, so a board inside a page border, or one merged with background noise, is still found. Contours above 1.6% of the image that simplify to a convex four-cornered shape become candidates;
+   4. contours are found including nested ones, so a board inside a page border, or one merged with background noise, is still found. Contours between 1.6% and 95% of the image (larger ones are the edge of the image itself) that simplify to a convex four-cornered shape become candidates;
    5. a candidate inside another candidate more than 8 times its size is dropped (the boxes and cells of a board), as is one inside another of nearly the same size (over 80%, the inner edge of the same thick border).
 
    The corners are scaled back to the full photo, and candidates are numbered largest first.
@@ -485,6 +481,11 @@ Each change lists the problem it addresses, the cause where known, and what was 
 - *Problem:* the board outline and grid size shown while aiming are useful feedback, especially to judge low-light conditions, but the black-and-white view was hard to read.
 - *Change:* the camera was briefly simplified to a plain camera. Live detection was then restored as a guide only: the outline is drawn on the normal (grayscale) camera view, capture is always allowed, and the detected grid size is preselected on the board selection screen.
 
+**Phone's camera app instead of the in-app camera**
+- *Problem:* low-light photos from the in-app camera were of lower quality than those from the phone's own camera app.
+- *Cause:* phone makers tune their own camera apps (night mode, HDR, noise reduction, focus) far beyond what a third-party app gets through CameraX. The six low-light test photos, taken with the phone's camera app, were all detected correctly.
+- *Change:* the **Camera** button now opens the phone's camera app, which saves the photo straight into the app's storage; it then goes through board selection like a gallery image. The CameraX screen is commented out, not deleted, so it can be restored. This loses the live outline and grid-size guide while aiming. Because camera apps can save very large photos (50–200 MP), photos are now shrunk on load to at most 4032 px on the longest side, for camera and gallery alike.
+
 #### Board detection in low light
 
 - *Problem:* in low light, the board selection screen failed to find the board, even when the camera's live detection found it.
@@ -496,13 +497,18 @@ Each change lists the problem it addresses, the cause where known, and what was 
 
   The live detection works on a small frame, which averages the grain away, and gets about 30 attempts per second.
 - *Change:* the selection screen now detects on a copy reduced to 1000 px:
-  - the brightness range is stretched first, so faint lines in dim photos survive;
+  - very flat (underexposed) images are contrast-stretched first, so faint lines survive;
   - the threshold neighbourhood scales with the image;
   - small gaps in lines are joined;
   - nested outlines are checked, with filtering that hides a board's boxes and cells and duplicate outlines of thick borders.
 
   The corners are mapped back to the full photo. A tap inside several outlines selects the smallest, which is the board rather than the page.
-- *Result:* on 5 photos with simulated low light (a quarter of the brightness plus sensor grain, at 12 MP), the board was found in all 5, against 0 before. In normal light it was found in all 5, including one the old method missed.
+- *Result:*
+  - **Real low-light photos:** on 6 dim photos taken with the phone's camera app, the board was found in all 6, against 0 with the old method.
+  - **Simulated low light:** on 5 sample photos darkened to a quarter of their brightness with sensor grain added (at 12 MP), it was found in all 5, against 0 before.
+  - **Normal light:** found in all 5 sample photos, including one the old method missed.
+  - **Extreme darkness:** on the real photos darkened a second time, far darker than a real dim photo, it was found in 2 of 6.
+- *Lesson:* a first version stretched the contrast of every image. It fixed the simulated photos but broke 5 of the 6 real ones, which is why the stretch now only applies to very flat images, and why changes should be checked on real photos and not only simulations.
 
 #### Development environment
 

@@ -42,6 +42,25 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ProcessingActivity extends AppCompatActivity {
+    // Boards are searched for on a copy reduced to this size, which averages out sensor noise
+    // (important in low light) and keeps the threshold behaving the same for any photo size
+    private static final int DETECTION_SIZE = 1000;
+    // Longest side photos are reduced to on load (about 12 MP). Camera apps can save 50-200 MP
+    // photos, too large to display (Android refuses bitmaps over about 100 MB) or process quickly.
+    private static final int MAX_PHOTO_SIDE = 4032;
+    // Smallest board accepted, as a fraction of the image
+    private static final double MIN_BOARD_AREA_FRACTION = 0.016;
+    // Larger outlines are the edge of the image itself, not a board (boards measured up to 89%)
+    private static final double MAX_BOARD_AREA_FRACTION = 0.95;
+    // Brightness range (max - min gray level) below which the image is contrast-stretched. Real
+    // dim phone photos measured 125-182; an image darkened to a quarter measured about 64.
+    private static final double STRETCH_BELOW_RANGE = 100;
+    // Threshold offset; the camera's live detection uses the same value at its default slider setting
+    private static final int THRESHOLD_C = 5;
+    // A candidate inside another that is this many times larger is a box or cell of that board
+    private static final double NESTED_PART_RATIO = 8.0;
+    // A candidate inside another of at least this relative size is the inner edge of the same border
+    private static final double NESTED_DUPLICATE_RATIO = 0.8;
 
     private ImageView ivProcessedImage;
     private TextView tvProcessingStatus;
@@ -159,6 +178,15 @@ public class ProcessingActivity extends AppCompatActivity {
                 }
             } catch (Exception e) { Log.e("Processing", "Load failed", e); }
 
+            if (loadedMat != null && !loadedMat.empty()
+                    && Math.max(loadedMat.cols(), loadedMat.rows()) > MAX_PHOTO_SIDE) {
+                double shrink = MAX_PHOTO_SIDE / (double) Math.max(loadedMat.cols(), loadedMat.rows());
+                Mat reduced = new Mat();
+                Imgproc.resize(loadedMat, reduced, new Size(), shrink, shrink, Imgproc.INTER_AREA);
+                loadedMat.release();
+                loadedMat = reduced;
+            }
+
             final Mat finalMat = loadedMat;
             runOnUiThread(() -> {
                 if (finalMat != null && !finalMat.empty()) {
@@ -177,29 +205,108 @@ public class ProcessingActivity extends AppCompatActivity {
         executor.execute(() -> {
             Mat gray = new Mat();
             Imgproc.cvtColor(originalFullMat, gray, Imgproc.COLOR_RGB2GRAY);
-            Imgproc.GaussianBlur(gray, gray, new Size(5, 5), 0);
-            Imgproc.adaptiveThreshold(gray, gray, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 11, 2);
-
-            List<MatOfPoint> contours = new ArrayList<>();
-            Mat hierarchy = new Mat();
-            Imgproc.findContours(gray, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+            List<MatOfPoint2f> found = findBoardCandidates(gray);
+            Log.i("Processing", "Board detection: image " + gray.cols() + "x" + gray.rows()
+                    + " from " + (getIntent().getStringExtra("image_path") != null ? "camera" : "gallery")
+                    + ", mean brightness " + Math.round(Core.mean(gray).val[0])
+                    + ", " + found.size() + " candidate(s)");
+            gray.release();
 
             for (MatOfPoint2f rect : detectedRectangles) rect.release();
             detectedRectangles.clear();
-            for (MatOfPoint contour : contours) {
-                double area = Imgproc.contourArea(contour);
-                if (area > 10000) {
-                    MatOfPoint2f c2f = new MatOfPoint2f(contour.toArray());
-                    double peri = Imgproc.arcLength(c2f, true);
-                    MatOfPoint2f approx = new MatOfPoint2f();
-                    Imgproc.approxPolyDP(c2f, approx, 0.02 * peri, true);
-                    if (approx.total() == 4) detectedRectangles.add(approx);
-                    else { approx.release(); c2f.release(); }
-                }
-            }
-            gray.release(); hierarchy.release();
+            detectedRectangles.addAll(found);
             runOnUiThread(this::drawDetectionUI);
         });
+    }
+
+    // Four-cornered outlines that could be the board, largest first, in the input's coordinates.
+    // Uses the same steps as the camera's live detection: reduced copy, image-relative threshold,
+    // gap closing, and nested outlines (so a board inside a page border or a noise blob is found).
+    static List<MatOfPoint2f> findBoardCandidates(Mat gray) {
+        double scale = Math.min(1.0, DETECTION_SIZE / (double) Math.max(gray.cols(), gray.rows()));
+        Mat small = new Mat();
+        Imgproc.resize(gray, small, new Size(), scale, scale, Imgproc.INTER_AREA);
+        // Very flat images (a narrow brightness range, as in an underexposed photo) are stretched to the
+        // full range, otherwise lines and paper differ by less than the threshold offset. Normal
+        // photos, including dim ones the camera has brightened, are left alone: stretching them
+        // amplifies grain and shading along with the lines and breaks the board outline.
+        Core.MinMaxLocResult range = Core.minMaxLoc(small);
+        if (range.maxVal - range.minVal < STRETCH_BELOW_RANGE) {
+            Core.normalize(small, small, 0, 255, Core.NORM_MINMAX);
+        }
+
+        Mat binary = new Mat();
+        int blockSize = Math.max(11, (small.cols() / 50) | 1);
+        Imgproc.adaptiveThreshold(small, binary, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, blockSize, THRESHOLD_C);
+        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_CROSS, new Size(3, 3));
+        Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_CLOSE, kernel);
+        kernel.release();
+
+        List<MatOfPoint> contours = new ArrayList<>();
+        Mat hierarchy = new Mat();
+        Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
+        binary.release();
+        hierarchy.release();
+
+        double minArea = small.cols() * small.rows() * MIN_BOARD_AREA_FRACTION;
+        double maxArea = small.cols() * small.rows() * MAX_BOARD_AREA_FRACTION;
+        small.release();
+        List<MatOfPoint2f> quads = new ArrayList<>();
+        List<Double> areas = new ArrayList<>();
+        for (MatOfPoint contour : contours) {
+            double area = Imgproc.contourArea(contour);
+            if (area > minArea && area < maxArea) {
+                MatOfPoint2f c2f = new MatOfPoint2f(contour.toArray());
+                MatOfPoint2f approx = new MatOfPoint2f();
+                Imgproc.approxPolyDP(c2f, approx, 0.02 * Imgproc.arcLength(c2f, true), true);
+                c2f.release();
+                if (approx.total() == 4 && Imgproc.isContourConvex(new MatOfPoint(approx.toArray()))) {
+                    quads.add(approx);
+                    areas.add(Imgproc.contourArea(approx));
+                } else {
+                    approx.release();
+                }
+            }
+            contour.release();
+        }
+
+        // Drop boxes and cells of a board, and inner-edge duplicates of a border
+        List<MatOfPoint2f> result = new ArrayList<>();
+        List<Double> resultAreas = new ArrayList<>();
+        for (int i = 0; i < quads.size(); i++) {
+            boolean keep = true;
+            for (int j = 0; j < quads.size() && keep; j++) {
+                if (i == j || areas.get(j) <= areas.get(i) || !isInside(quads.get(i), quads.get(j))) continue;
+                double ratio = areas.get(i) / areas.get(j);
+                if (ratio * NESTED_PART_RATIO < 1.0 || ratio >= NESTED_DUPLICATE_RATIO) keep = false;
+            }
+            if (keep) {
+                int pos = 0;
+                while (pos < resultAreas.size() && resultAreas.get(pos) >= areas.get(i)) pos++;
+                result.add(pos, quads.get(i));
+                resultAreas.add(pos, areas.get(i));
+            } else {
+                quads.get(i).release();
+            }
+        }
+
+        // Back to the input's coordinates
+        for (MatOfPoint2f quad : result) {
+            Point[] pts = quad.toArray();
+            for (Point p : pts) {
+                p.x /= scale;
+                p.y /= scale;
+            }
+            quad.fromArray(pts);
+        }
+        return result;
+    }
+
+    private static boolean isInside(MatOfPoint2f inner, MatOfPoint2f outer) {
+        for (Point p : inner.toArray()) {
+            if (Imgproc.pointPolygonTest(outer, p, false) < 0) return false;
+        }
+        return true;
     }
 
     private void drawDetectionUI() {
@@ -223,10 +330,12 @@ public class ProcessingActivity extends AppCompatActivity {
         inverse.mapPoints(pts);
         Point tapPoint = new Point(pts[0], pts[1]);
 
+        // Candidates are sorted largest first, so the last hit is the smallest one containing the
+        // tap: a board rather than the page around it
         int selectedIdx = -1;
         for (int i = 0; i < detectedRectangles.size(); i++) {
             if (Imgproc.pointPolygonTest(detectedRectangles.get(i), tapPoint, false) >= 0) {
-                selectedIdx = i; break;
+                selectedIdx = i;
             }
         }
 
@@ -254,7 +363,9 @@ public class ProcessingActivity extends AppCompatActivity {
                 btnFinish.setVisibility(View.VISIBLE);
                 tvProcessingStatus.setText("Select grid size and fine-tune");
                 resetPipeline();
-                selectGridSize(9); 
+                // Preselect the size the camera detected, if any
+                int detected = getIntent().getIntExtra("grid_size", 0);
+                selectGridSize(detected == 16 || detected == 25 ? detected : 9); 
                 progressBar.setVisibility(View.GONE);
             });
         });

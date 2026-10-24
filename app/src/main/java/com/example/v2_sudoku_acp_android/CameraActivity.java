@@ -1,3 +1,17 @@
+// CameraX camera screen, kept for reference and currently disabled: the Camera button now opens
+// the phone's own camera app (see MainActivity.takePictureLauncher).
+//
+// To restore it:
+//   1. Remove the /* and */ around this file.
+//   2. Uncomment the CameraActivity <activity> entry in AndroidManifest.xml.
+//   3. In MainActivity, uncomment cameraResultLauncher and the CameraActivity launch in the
+//      Camera button's click listener, and remove the takePictureLauncher call there.
+//
+// It shows live board and grid-size detection while aiming, takes a full-resolution photo
+// (capped near 12 MP) and returns its path plus the detected grid size. The layout is
+// res/layout/activity_camera.xml, and the CameraX libraries are still in app/build.gradle.kts.
+
+/*
 package com.example.v2_sudoku_acp_android;
 
 import android.content.Intent;
@@ -11,11 +25,17 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
+import androidx.camera.core.resolutionselector.AspectRatioStrategy;
+import androidx.camera.core.resolutionselector.ResolutionSelector;
+import androidx.camera.core.resolutionselector.ResolutionStrategy;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
@@ -35,7 +55,6 @@ import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -44,13 +63,22 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+// Live board and grid-size detection on the preview frames, for feedback only. Capture takes a
+// full-resolution color photo; board selection then happens in ProcessingActivity, with the
+// detected grid size preselected.
 public class CameraActivity extends AppCompatActivity {
+    private static final String TAG = "SudokuCamera";
+    // About 12 MP. Phones with 50-200 MP sensors would otherwise produce photos too large to
+    // process in memory, while this still leaves enough detail for small digits.
+    private static final android.util.Size TARGET_PHOTO_SIZE = new android.util.Size(4032, 3024);
 
     private PreviewView viewFinder;
     private ImageView ivDebugFrame;
     private TextView tvDimensions;
     private TextView tvThresholdValue;
     private ExecutorService cameraExecutor;
+    private ImageCapture imageCapture;
+    private Button btnCapture;
 
     private int currentThreshold = 30;
     private int lockedDimension = 0; // 0 = Auto
@@ -58,9 +86,6 @@ public class CameraActivity extends AppCompatActivity {
 
     private final List<Integer> resultHistory = new ArrayList<>();
     private final int HISTORY_SIZE = 20;
-
-    private Mat latestSudokuMat;
-    private final Object matLock = new Object();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +96,7 @@ public class CameraActivity extends AppCompatActivity {
         ivDebugFrame = findViewById(R.id.ivDebugFrame);
         tvDimensions = findViewById(R.id.tvDimensions);
         tvThresholdValue = findViewById(R.id.tvThresholdValue);
-        Button btnCapture = findViewById(R.id.btnCapture);
+        btnCapture = findViewById(R.id.btnCapture);
         SeekBar thresholdSeekBar = findViewById(R.id.thresholdSeekBar);
         RadioGroup rgGridLock = findViewById(R.id.rgGridLock);
 
@@ -116,8 +141,18 @@ public class CameraActivity extends AppCompatActivity {
 
                 imageAnalysis.setAnalyzer(cameraExecutor, this::processImageProxy);
 
+                ResolutionSelector resolutionSelector = new ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                        .setResolutionStrategy(new ResolutionStrategy(TARGET_PHOTO_SIZE,
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                        .build();
+                imageCapture = new ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                        .setResolutionSelector(resolutionSelector)
+                        .build();
+
                 cameraProvider.unbindAll();
-                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis);
+                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis, imageCapture);
             } catch (Exception e) {
                 Log.e("SudokuCamera", "Camera binding failed", e);
             }
@@ -225,24 +260,12 @@ public class CameraActivity extends AppCompatActivity {
 
                 dimText = (stableDimension > 0) ? stableDimension + "x" + stableDimension + (lockedDimension > 0 ? " (Locked)" : " Grid") : "Analyzing...";
 
-                // Perspective Warp for Capture
-                MatOfPoint2f c2f = new MatOfPoint2f(largestContour.toArray());
-                MatOfPoint2f approx = new MatOfPoint2f();
-                Imgproc.approxPolyDP(c2f, approx, 0.02 * Imgproc.arcLength(c2f, true), true);
-                if (approx.total() == 4) {
-                    synchronized (matLock) {
-                        if (latestSudokuMat != null) latestSudokuMat.release();
-                        // Use binaryMat for the "processed" (thresholded) warped grid
-                        latestSudokuMat = warpPerspective(binaryMat, approx);
-                    }
-                }
-                approx.release();
-                c2f.release();
             }
 
             // Draw and Display
             Mat displayMat = new Mat();
-            Imgproc.cvtColor(binaryMat, displayMat, Imgproc.COLOR_GRAY2RGBA);
+            // Show the camera frame itself (not the thresholded mask) with the detected board outlined
+            Imgproc.cvtColor(grayMat, displayMat, Imgproc.COLOR_GRAY2RGBA);
             if (largestContour != null) {
                 Imgproc.drawContours(displayMat, Collections.singletonList(largestContour), -1, new Scalar(0, 255, 0, 255), 4);
             }
@@ -267,63 +290,38 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    private Mat warpPerspective(Mat src, MatOfPoint2f corners) {
-        Point[] pts = corners.toArray();
-        Point[] sorted = new Point[4];
-        double[] sum = new double[4], diff = new double[4];
-        for(int i=0; i<4; i++) { sum[i] = pts[i].x + pts[i].y; diff[i] = pts[i].x - pts[i].y; }
-
-        int tl=0, br=0, tr=0, bl=0;
-        for(int i=1; i<4; i++) {
-            if (sum[i] < sum[tl]) tl = i;
-            if (sum[i] > sum[br]) br = i;
-            if (diff[i] > diff[tr]) tr = i;
-            if (diff[i] < diff[bl]) bl = i;
-        }
-
-        MatOfPoint2f srcPts = new MatOfPoint2f(pts[tl], pts[tr], pts[br], pts[bl]);
-        MatOfPoint2f dstPts = new MatOfPoint2f(new Point(0, 0), new Point(500, 0), new Point(500, 500), new Point(0, 500));
-        Mat m = Imgproc.getPerspectiveTransform(srcPts, dstPts);
-        Mat dst = new Mat();
-        Imgproc.warpPerspective(src, dst, m, new Size(500, 500));
-        m.release();
-        srcPts.release();
-        dstPts.release();
-        return dst;
-    }
-
     private void takePhoto() {
-        synchronized (matLock) {
-            if (latestSudokuMat == null || latestSudokuMat.empty()) {
-                Toast.makeText(this, "No grid detected!", Toast.LENGTH_SHORT).show();
-                return;
-            }
+        if (imageCapture == null) return;
+        btnCapture.setEnabled(false);
+        final int gridSize = stableDimension;
 
-            Bitmap bmp = Bitmap.createBitmap(latestSudokuMat.cols(), latestSudokuMat.rows(), Bitmap.Config.ARGB_8888);
-            Utils.matToBitmap(latestSudokuMat, bmp);
+        // The photo's orientation is stored in its EXIF data, which OpenCV's imread applies on load
+        File file = new File(getExternalFilesDir(null), "camera_photo.jpg");
+        ImageCapture.OutputFileOptions options = new ImageCapture.OutputFileOptions.Builder(file).build();
 
-            File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
-            try (FileOutputStream out = new FileOutputStream(file)) {
-                bmp.compress(Bitmap.CompressFormat.JPEG, 100, out);
-
+        imageCapture.takePicture(options, ContextCompat.getMainExecutor(this), new ImageCapture.OnImageSavedCallback() {
+            @Override
+            public void onImageSaved(@NonNull ImageCapture.OutputFileResults results) {
                 Intent intent = new Intent();
                 intent.putExtra("image_path", file.getAbsolutePath());
-
-                // --- ADDED: Pass the detected grid size ---
-                intent.putExtra("grid_size", stableDimension);
-
+                intent.putExtra("grid_size", gridSize);
                 setResult(RESULT_OK, intent);
                 finish();
-            } catch (Exception e) {
-                Log.e("Sudoku", "Save failed", e);
             }
-        }
+
+            @Override
+            public void onError(@NonNull ImageCaptureException e) {
+                Log.e(TAG, "Photo capture failed", e);
+                btnCapture.setEnabled(true);
+                Toast.makeText(CameraActivity.this, "Capture failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         cameraExecutor.shutdown();
-        synchronized (matLock) { if (latestSudokuMat != null) latestSudokuMat.release(); }
     }
 }
+*/
