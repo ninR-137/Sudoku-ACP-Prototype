@@ -96,7 +96,8 @@ public class EditImageActivity extends AppCompatActivity {
         Bitmap finalBitmap = paintView.getBitmap();
         if (finalBitmap != null) {
             try (FileOutputStream out = new FileOutputStream(imagePath)) {
-                finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                // Lossless, so no compression artifacts reach the recognizer
+                finalBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
                 Intent resultIntent = new Intent();
                 resultIntent.putExtra("image_path", imagePath);
                 setResult(RESULT_OK, resultIntent);

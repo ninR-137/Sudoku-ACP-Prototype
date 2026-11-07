@@ -110,13 +110,13 @@ public class DigitRecognizer {
             }
         }
 
-//        Log.d(TAG, scores.toString());
-//        Log.d(TAG,
-//                "Prediction sample=" + sampleId +
-//                        ", predicted digit=" + maxIdx +
-//                        ", confidence=" + String.format(Locale.US, "%.4f", maxProb) +
-//                        ", inputRange=[" + String.format(Locale.US, "%.4f", min) + ", " + String.format(Locale.US, "%.4f", max) + "]"
-//        );
+        Log.d(TAG, scores.toString());
+        Log.d(TAG,
+                "Prediction sample=" + sampleId +
+                        ", predicted digit=" + maxIdx +
+                        ", confidence=" + String.format(Locale.US, "%.4f", maxProb) +
+                        ", inputRange=[" + String.format(Locale.US, "%.4f", min) + ", " + String.format(Locale.US, "%.4f", max) + "]"
+        );
 
         Log.d(TAG,
                 "Confidence= " + String.format(Locale.US, "%.4f", maxProb) + " Index=" + index +  ", predicted digit=" + maxIdx

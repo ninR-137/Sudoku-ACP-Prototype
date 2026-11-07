@@ -326,7 +326,7 @@ public class SolverActivity extends AppCompatActivity {
         File dir = getExternalFilesDir("ocr_fixtures");
         String name = "board_" + n + "x" + n + "_" + System.currentTimeMillis();
         try (InputStream in = new FileInputStream(imagePath);
-             OutputStream imageOut = new FileOutputStream(new File(dir, name + ".jpg"));
+             OutputStream imageOut = new FileOutputStream(new File(dir, name + imageExtension()));
              OutputStream gridOut = new FileOutputStream(new File(dir, name + ".txt"))) {
             byte[] buffer = new byte[8192];
             int read;
@@ -339,6 +339,13 @@ public class SolverActivity extends AppCompatActivity {
             Log.e(TAG, "Fixture export failed", e);
             Toast.makeText(this, "Export failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // Extension of the scanned image (".png", or ".jpg" for older scans), kept on export so the
+    // copied bytes match their file name
+    private String imageExtension() {
+        int dot = imagePath.lastIndexOf('.');
+        return dot >= 0 ? imagePath.substring(dot) : ".png";
     }
 
     private void showDebugCell(Bitmap bitmap, int index) {

@@ -154,7 +154,7 @@ Long-press **Solve with MCAS** **before** solving to save the current image and 
 
 ### 4.1 Screen flow and data passing
 
-Screens pass the board image to each other as a JPEG file in the app's private external storage (`getExternalFilesDir`), together with two values in the screen-opening intent: `image_path` and `grid_size` (9, 16 or 25). The file the solver screen reads is `captured_sudoku.jpg`.
+Screens pass the board image to each other as a file in the app's private external storage (`getExternalFilesDir`), together with two values in the screen-opening intent: `image_path` and `grid_size` (9, 16 or 25). Board images are saved as lossless PNG, so no compression artifacts reach the recognizer; the camera photo itself is the camera app's JPEG. The file the solver screen reads is `captured_sudoku.png`.
 
 ### 4.2 Image acquisition
 
@@ -175,21 +175,21 @@ The previous in-app camera screen (`CameraActivity`, built on CameraX, with live
    5. a candidate inside another candidate more than 8 times its size is dropped (the boxes and cells of a board), as is one inside another of nearly the same size (over 80%, the inner edge of the same thick border).
 
    The corners are scaled back to the full photo, and candidates are numbered largest first.
-3. The tapped candidate's corners are sorted (top-left, top-right, bottom-right, bottom-left) and the board is perspective-warped to 1000x1000 px.
+3. The tapped candidate's corners are sorted (top-left, top-right, bottom-right, bottom-left) and a 1000x1000 px preview of the flattened board is shown for choosing the grid size and filters.
 4. Optional filters (section 3.4) are applied in a fixed order: grayscale, median, threshold, heal (morphological closing), Canny, blur.
-5. On **Finish**, the grid overlay is drawn onto the image, which is converted to grayscale and saved.
+5. On **Finish**, the board is flattened again from the full photo, straight to its final size: 2000 px for 9x9, 3200 px for 16x16, 4000 px for 25x25 (cells of about 220, 200 and 160 px, the scale the recognizer's pixel-based settings were tuned on). If the board in the photo is larger than that, the photo is first shrunk with area averaging, which keeps thin strokes smooth. The selected filters are applied again, with kernel sizes scaled from the preview so they have the same effect. The grid overlay is drawn, and the image is converted to grayscale and saved as `preprocessed_sudoku.png`.
 
 ### 4.3 Enhancement (`MainActivity`)
 
-1. The returned image is upscaled with cubic interpolation by 2x (9x9), 3.2x (16x16) or 4x (25x25).
-2. Each time a control changes, the pipeline runs from the upscaled image:
+1. The returned board is already at its final size, so it is used as is.
+2. Each time a control changes, the pipeline runs from that image:
    1. contrast normalization to the full 0–255 range;
    2. optional median blur;
    3. bilateral filter (diameter 9): smooths paper texture while keeping edges sharp;
    4. unsharp masking (original x 1.5 minus Gaussian-blurred x 0.5): sharpens digit strokes;
    5. optional morphological closing;
    6. optional inversion.
-3. The result is shown in the preview and saved as `captured_sudoku.jpg`.
+3. The result is shown in the preview and kept in memory. It is saved as `captured_sudoku.png` only when the solver screen, the image editor or the crop tool opens, because encoding a 2000–4000 px PNG on every slider movement would make the controls lag. The crop tool is asked to return an image of the same size.
 
 ### 4.4 Digit extraction (`SudokuOcr`)
 
@@ -360,9 +360,8 @@ To build variety quickly, photograph the same puzzle under several conditions an
 ## 6. Known limitations
 
 - **Large grids from photos:** the model reads one digit (0–9) per cell, so the values 10–25 on 16x16 and 25x25 boards cannot be recognized and must be typed in.
-- **Board resolution:** on the board selection screen, boards are warped to 1000x1000 px with linear interpolation, about 111 px per cell on 9x9 but only 40 px on 25x25. The later upscaling adds no detail.
 - **Even-grid cell cutting:** cells are cut on an evenly spaced grid, which assumes a flat page. Curved pages can push grid lines into cells; the grid-line test handles most but not all cases.
-- **Repeated compression:** images are saved as JPEG between steps; editing or cropping applies the enhancement filters again on top of an already filtered image.
+- **Repeated filtering:** editing or cropping reads back the enhanced image, and the enhancement filters are then applied again on top of it.
 - **Screen rotation** on the solver screen re-runs recognition and discards manual corrections.
 - **Solver result check:** success is decided by counting filled cells; the existing `Board::CheckSolution` is not called before returning. Simulated annealing returns its current state rather than the best state it found.
 - **Accuracy gate:** `MIN_ACCURACY` is 0.0, so `OcrAccuracyTest` reports but never fails.
@@ -510,6 +509,15 @@ Each change lists the problem it addresses, the cause where known, and what was 
   - **Extreme darkness:** on the real photos darkened a second time, far darker than a real dim photo, it was found in 2 of 6.
 - *Lesson:* a first version stretched the contrast of every image. It fixed the simulated photos but broke 5 of the 6 real ones, which is why the stretch now only applies to very flat images, and why changes should be checked on real photos and not only simulations.
 
+#### Board image quality
+
+- *Problem:* the board the recognizer received was a degraded copy of the photo, however good the photo was.
+- *Cause:* the selection screen flattened every board to 1000x1000 px, shrinking a 12 MP photo's board without averaging, which makes thin strokes jagged. The image was saved as JPEG, enlarged 2–4 times on the home screen (which adds size but no detail), and saved as JPEG twice more. Each JPEG save adds compression artifacts around dark edges, the exact places the recognizer examines.
+- *Change:* on **Finish** the board is flattened again from the full photo, straight to the size the recognizer expects (2000, 3200 or 4000 px), with area averaging when shrinking. The home-screen enlargement was removed, and the intermediate board images are saved as lossless PNG. The 1000 px preview is still used on screen, and the filters chosen on it are re-applied with scaled kernel sizes.
+  - *Final size:* the original plan was about 100 px per cell. It was kept at the current 160–220 px instead, because the recognizer's settings are in absolute pixels and the labelled test images are at that scale; changing it would have meant retuning recognition.
+  - *Smaller fixes:* the home screen now writes its PNG only when another screen needs it, not on every slider movement, and the crop tool returns the image at its current size instead of 1000 px.
+- *Result:* on the 11 test photos (891 cells), recognition went from 870 to 872 correct cells; the 6 real phone photos gained 3 cells and one small 640x480 photo lost 1. The effect on 9x9 boards is small, because their cells already had more pixels than the recognizer needs, and the remaining errors have other causes. The larger benefit is expected on 16x16 and 25x25 boards, whose cells previously had only 62 and 40 px of real detail. That can't be measured until two-digit recognition works.
+
 #### Development environment
 
 - **Emulator storage:** the app (about 180 MB with all processor types) no longer fit on the emulator's 6 GB of storage, so installs failed. Storage was raised to 12 GB, and builds for a single processor type (`-Pandroid.injected.build.abi=arm64-v8a`) are documented.
@@ -529,11 +537,10 @@ Each change lists the problem it addresses, the cause where known, and what was 
 6. **Two-digit recognition for 16x16 and 25x25:** keep every accepted blob in a cell, classify side-by-side blobs separately and combine them (for example 1 and 6 into 16), discarding values above n.
 
 **Quality improvements (measure each with `OcrAccuracyTest`)**
-7. Board selection: warp at a size based on the grid (about 100 px per cell) with area interpolation, drop the upscale, and save intermediate images as PNG.
-8. Cut cells along detected grid lines rather than an even grid, if test results show edge errors on curved pages.
-9. Call `Board::CheckSolution` before reporting success, and return the best state from simulated annealing.
-10. Keep the board on screen rotation.
+7. Cut cells along detected grid lines rather than an even grid, if test results show edge errors on curved pages.
+8. Call `Board::CheckSolution` before reporting success, and return the best state from simulated annealing.
+9. Keep the board on screen rotation.
 
 **Optional**
-11. On-device benchmark of MCAS against backtracking on 9x9, 16x16 and 25x25 instances, to support the thesis claim that MCAS is practical on phones.
-12. Remove the unused `GalleryActivity` and `QuadrilateralSelectionView`, and retire the outdated `IMAGE_PROCESSING_DOCUMENTATION.md`.
+10. On-device benchmark of MCAS against backtracking on 9x9, 16x16 and 25x25 instances, to support the thesis claim that MCAS is practical on phones.
+11. Remove the unused `GalleryActivity` and `QuadrilateralSelectionView`, and retire the outdated `IMAGE_PROCESSING_DOCUMENTATION.md`.

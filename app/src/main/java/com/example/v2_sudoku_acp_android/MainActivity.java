@@ -32,6 +32,7 @@ import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfInt;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -48,6 +49,8 @@ public class MainActivity extends AppCompatActivity {
     private int detectedGridSize = 9;
 
     private Mat originalWarpedMat; 
+    // Result of the enhancement pipeline, written to processedFile() only when another screen needs it
+    private Mat latestProcessed;
     private SeekBar sbMedianBlurSlider, sbMorphologySlider;
     private SwitchCompat swMedianBlurToggle, swMorphologyToggle, swInvertToggle;
 
@@ -115,7 +118,8 @@ public class MainActivity extends AppCompatActivity {
         btnCrop.setOnClickListener(v -> startCropIntent());
 
         btnEditImage.setOnClickListener(v -> {
-            File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
+            if (!saveProcessedImage()) return;
+            File file = processedFile();
             Intent intent = new Intent(MainActivity.this, EditImageActivity.class);
             intent.putExtra("image_path", file.getAbsolutePath());
             editResultLauncher.launch(intent);
@@ -142,11 +146,10 @@ public class MainActivity extends AppCompatActivity {
 
         btnProcess = findViewById(R.id.btnProcess);
         btnProcess.setOnClickListener(v -> {
+            if (!saveProcessedImage()) return;
             Intent intent = new Intent(MainActivity.this, SolverActivity.class);
             intent.putExtra("grid_size", detectedGridSize);
-            
-            File processedFile = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
-            intent.putExtra("image_path", processedFile.getAbsolutePath());
+            intent.putExtra("image_path", processedFile().getAbsolutePath());
             startActivity(intent);
         });
 
@@ -269,22 +272,12 @@ public class MainActivity extends AppCompatActivity {
 
         if (imagePath != null) {
             detectedGridSize = gridSize;
+            // Already at its final size (ProcessingActivity warps straight from the full photo)
             Mat src = Imgcodecs.imread(imagePath, Imgcodecs.IMREAD_GRAYSCALE);
             if (src.empty()) return;
 
-            float scaleFactor = 2.0f;
-            if (gridSize == 16) scaleFactor = 3.2f;
-            else if (gridSize == 25) scaleFactor = 4.0f;
-
-            int newSize = (int) (src.cols() * scaleFactor);
-            Mat resized = new Mat();
-            Imgproc.resize(src, resized, new Size(newSize, newSize), 0, 0, Imgproc.INTER_CUBIC);
-
             if (originalWarpedMat != null) originalWarpedMat.release();
-            originalWarpedMat = resized.clone();
-            Imgcodecs.imwrite(imagePath, resized);
-            src.release();
-            resized.release();
+            originalWarpedMat = src;
 
             tvSudokuStatus.setText("Image Pre-processed");
             btnProcess.setVisibility(View.VISIBLE);
@@ -341,13 +334,32 @@ public class MainActivity extends AppCompatActivity {
         Utils.matToBitmap(processedMat, bmp);
         ivSudokuPreview.setImageBitmap(bmp);
 
-        File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
-        Imgcodecs.imwrite(file.getAbsolutePath(), processedMat);
+        if (latestProcessed != null) latestProcessed.release();
+        latestProcessed = processedMat;
 
         temp.release();
         smoothed.release();
         sharpened.release();
-        processedMat.release();
+    }
+
+    // The enhanced board that SolverActivity, the editor and the crop tool read
+    private File processedFile() {
+        return new File(getExternalFilesDir(null), "captured_sudoku.png");
+    }
+
+    // Writes the latest enhanced board to processedFile(). PNG is lossless, so no compression
+    // artifacts reach the recognizer; it is written on demand rather than on every slider change
+    // because encoding a 2000-4000 px PNG takes noticeable time.
+    private boolean saveProcessedImage() {
+        if (latestProcessed == null || latestProcessed.empty()) {
+            Toast.makeText(this, "No image to process", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        MatOfInt params = new MatOfInt(Imgcodecs.IMWRITE_PNG_COMPRESSION, 1);
+        boolean saved = Imgcodecs.imwrite(processedFile().getAbsolutePath(), latestProcessed, params);
+        params.release();
+        if (!saved) Toast.makeText(this, "Could not save the image", Toast.LENGTH_SHORT).show();
+        return saved;
     }
 
     private void sharpenMat(Mat src, Mat dst) {
@@ -369,11 +381,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void startCropIntent() {
         try {
-            File file = new File(getExternalFilesDir(null), "captured_sudoku.jpg");
-            if (!file.exists()) {
-                Toast.makeText(this, "No image to crop", Toast.LENGTH_SHORT).show();
-                return;
-            }
+            if (!saveProcessedImage()) return;
+            File file = processedFile();
+            // Keep the cropped image at the current size, which the recognizer's settings expect
+            int side = latestProcessed.cols();
 
             Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
             
@@ -382,8 +393,8 @@ public class MainActivity extends AppCompatActivity {
             intent.putExtra("crop", "true");
             intent.putExtra("aspectX", 1);
             intent.putExtra("aspectY", 1);
-            intent.putExtra("outputX", 1000);
-            intent.putExtra("outputY", 1000);
+            intent.putExtra("outputX", side);
+            intent.putExtra("outputY", side);
             intent.putExtra("scale", true);
             intent.putExtra("return-data", false);
             intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri);
@@ -400,7 +411,7 @@ public class MainActivity extends AppCompatActivity {
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK) {
-                    originalWarpedMat = Imgcodecs.imread(new File(getExternalFilesDir(null), "captured_sudoku.jpg").getAbsolutePath(), Imgcodecs.IMREAD_GRAYSCALE);
+                    originalWarpedMat = Imgcodecs.imread(processedFile().getAbsolutePath(), Imgcodecs.IMREAD_GRAYSCALE);
                     updateImageThreshold();
                 }
             }

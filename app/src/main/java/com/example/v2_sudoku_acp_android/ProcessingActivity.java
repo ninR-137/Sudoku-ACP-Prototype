@@ -24,6 +24,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
@@ -48,6 +49,8 @@ public class ProcessingActivity extends AppCompatActivity {
     // Longest side photos are reduced to on load (about 12 MP). Camera apps can save 50-200 MP
     // photos, too large to display (Android refuses bitmaps over about 100 MB) or process quickly.
     private static final int MAX_PHOTO_SIDE = 4032;
+    // Side of the on-screen preview the user selects the grid size and filters on
+    private static final int PREVIEW_SIZE = 1000;
     // Smallest board accepted, as a fraction of the image
     private static final double MIN_BOARD_AREA_FRACTION = 0.016;
     // Larger outlines are the edge of the image itself, not a board (boards measured up to 89%)
@@ -72,6 +75,8 @@ public class ProcessingActivity extends AppCompatActivity {
 
     private Mat originalFullMat; 
     private Mat warpedBaseMat;   
+    // Selected board corners in the full photo (top-left, top-right, bottom-right, bottom-left)
+    private Point[] boardCorners;
     private Mat currentMat;      
 
     private List<MatOfPoint2f> detectedRectangles = new ArrayList<>();
@@ -347,15 +352,10 @@ public class ProcessingActivity extends AppCompatActivity {
         progressBar.setVisibility(View.VISIBLE);
         tvProcessingStatus.setText("Warping...");
         executor.execute(() -> {
-            Point[] pts = corners.toArray();
-            Point[] sorted = sortCorners(pts);
-            MatOfPoint2f srcPts = new MatOfPoint2f(sorted[0], sorted[1], sorted[2], sorted[3]);
-            MatOfPoint2f dstPts = new MatOfPoint2f(new Point(0, 0), new Point(1000, 0), new Point(1000, 1000), new Point(0, 1000));
-            Mat m = Imgproc.getPerspectiveTransform(srcPts, dstPts);
-            warpedBaseMat = new Mat();
-            Imgproc.warpPerspective(originalFullMat, warpedBaseMat, m, new Size(1000, 1000));
-            
-            m.release(); srcPts.release(); dstPts.release();
+            boardCorners = sortCorners(corners.toArray());
+            // Low-resolution preview for choosing the grid size and filters; the saved board is
+            // warped again from the full photo at its final size in saveAndReturn
+            warpedBaseMat = warpBoard(originalFullMat, boardCorners, PREVIEW_SIZE);
             runOnUiThread(() -> {
                 viewSelectionOverlay.setVisibility(View.GONE);
                 llGridSizePicker.setVisibility(View.VISIBLE);
@@ -400,38 +400,97 @@ public class ProcessingActivity extends AppCompatActivity {
 
     private void updatePipeline() {
         if (warpedBaseMat == null) return;
-        Mat temp = warpedBaseMat.clone();
-
-        if (isGray || isThresh || isCanny || isMedian) Imgproc.cvtColor(temp, temp, Imgproc.COLOR_RGB2GRAY);
-        if (isMedian) { Mat t = new Mat(); Imgproc.medianBlur(temp, t, medianKernel); temp.release(); temp = t; }
-        if (isThresh) {
-            Mat t = new Mat();
-            Imgproc.adaptiveThreshold(temp, t, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 11, threshC);
-            temp.release(); temp = t;
-        }
-        if (isMorph) {
-            Mat t = new Mat();
-            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(morphSize, morphSize));
-            Imgproc.morphologyEx(temp, t, Imgproc.MORPH_CLOSE, kernel);
-            kernel.release(); temp.release(); temp = t;
-        }
-        if (isCanny) { Mat t = new Mat(); Imgproc.Canny(temp, t, cannyThresh1, cannyThresh2); temp.release(); temp = t; }
-        if (isBlur) { Mat t = new Mat(); Imgproc.GaussianBlur(temp, t, new Size(blurKernel, blurKernel), 0); temp.release(); temp = t; }
+        Mat temp = applyFilters(warpedBaseMat, 1.0);
 
         if (currentMat != null) currentMat.release();
         currentMat = temp;
         
         Mat display = currentMat.clone();
-        drawGridOnMat(display, selectedGridSize);
+        drawGridOnMat(display, selectedGridSize, 1.0);
         displayMatNoGrid(display);
         display.release();
     }
 
-    private void drawGridOnMat(Mat mat, int gridSize) {
+    // Applies the selected filters to a copy of base. Kernel sizes are set on the preview, so
+    // scale (the image's size relative to the preview) keeps their effect the same on larger images.
+    private Mat applyFilters(Mat base, double scale) {
+        Mat temp = base.clone();
+
+        if (isGray || isThresh || isCanny || isMedian) Imgproc.cvtColor(temp, temp, Imgproc.COLOR_RGB2GRAY);
+        if (isMedian) { Mat t = new Mat(); Imgproc.medianBlur(temp, t, scaledOdd(medianKernel, scale)); temp.release(); temp = t; }
+        if (isThresh) {
+            Mat t = new Mat();
+            Imgproc.adaptiveThreshold(temp, t, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, scaledOdd(11, scale), threshC);
+            temp.release(); temp = t;
+        }
+        if (isMorph) {
+            Mat t = new Mat();
+            int size = Math.max(1, (int) Math.round(morphSize * scale));
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, new Size(size, size));
+            Imgproc.morphologyEx(temp, t, Imgproc.MORPH_CLOSE, kernel);
+            kernel.release(); temp.release(); temp = t;
+        }
+        if (isCanny) { Mat t = new Mat(); Imgproc.Canny(temp, t, cannyThresh1, cannyThresh2); temp.release(); temp = t; }
+        if (isBlur) {
+            Mat t = new Mat();
+            int k = scaledOdd(blurKernel, scale);
+            Imgproc.GaussianBlur(temp, t, new Size(k, k), 0);
+            temp.release(); temp = t;
+        }
+        return temp;
+    }
+
+    private static int scaledOdd(int kernel, double scale) {
+        int k = (int) Math.round(kernel * scale);
+        return k % 2 == 0 ? k + 1 : Math.max(1, k);
+    }
+
+    // Final side of the saved board. These are the sizes the recognizer's pixel-based settings
+    // were tuned on (cells of about 220, 200 and 160 px).
+    static int boardSizeFor(int gridSize) {
+        if (gridSize == 25) return 4000;
+        if (gridSize == 16) return 3200;
+        return 2000;
+    }
+
+    // Flattens the board with the given corners (top-left, top-right, bottom-right, bottom-left)
+    // to a size x size image. warpPerspective does not average pixels when shrinking, so a photo
+    // whose board is larger than the target is first reduced with area averaging.
+    static Mat warpBoard(Mat src, Point[] corners, int size) {
+        double longestSide = 0;
+        for (int i = 0; i < 4; i++) {
+            Point a = corners[i], b = corners[(i + 1) % 4];
+            longestSide = Math.max(longestSide, Math.hypot(a.x - b.x, a.y - b.y));
+        }
+
+        Mat source = src;
+        Point[] pts = new Point[4];
+        for (int i = 0; i < 4; i++) pts[i] = corners[i].clone();
+        double shrink = size / longestSide;
+        if (shrink < 1.0) {
+            source = new Mat();
+            Imgproc.resize(src, source, new Size(), shrink, shrink, Imgproc.INTER_AREA);
+            for (Point p : pts) {
+                p.x *= shrink;
+                p.y *= shrink;
+            }
+        }
+
+        MatOfPoint2f srcPts = new MatOfPoint2f(pts);
+        MatOfPoint2f dstPts = new MatOfPoint2f(new Point(0, 0), new Point(size, 0), new Point(size, size), new Point(0, size));
+        Mat m = Imgproc.getPerspectiveTransform(srcPts, dstPts);
+        Mat board = new Mat();
+        Imgproc.warpPerspective(source, board, m, new Size(size, size), Imgproc.INTER_LINEAR);
+        m.release(); srcPts.release(); dstPts.release();
+        if (source != src) source.release();
+        return board;
+    }
+
+    private void drawGridOnMat(Mat mat, int gridSize, double scale) {
         Scalar color = new Scalar(255, 255, 0); // Yellow
         if (mat.channels() == 1) color = new Scalar(255); // White for gray
         
-        int thickness = 2;
+        int thickness = Math.max(2, (int) Math.round(2 * scale));
         int width = mat.cols();
         int height = mat.rows();
         
@@ -500,24 +559,47 @@ public class ProcessingActivity extends AppCompatActivity {
     }
 
     private void saveAndReturn() {
-        if (currentMat == null) return;
-        File file = new File(getExternalFilesDir(null), "preprocessed_sudoku.jpg");
-        Mat returnMat = currentMat.clone();
-        
-        // Burn grid into final image as requested
-        drawGridOnMat(returnMat, selectedGridSize);
+        if (currentMat == null || boardCorners == null) return;
+        progressBar.setVisibility(View.VISIBLE);
+        tvProcessingStatus.setText("Saving...");
+        btnFinish.setEnabled(false);
+        final int gridSize = selectedGridSize;
 
-        if (returnMat.channels() > 1) Imgproc.cvtColor(returnMat, returnMat, Imgproc.COLOR_RGB2GRAY);
-        Bitmap bmp = Bitmap.createBitmap(returnMat.cols(), returnMat.rows(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(returnMat, bmp);
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            bmp.compress(Bitmap.CompressFormat.JPEG, 100, out);
-            Intent resultIntent = new Intent();
-            resultIntent.putExtra("image_path", file.getAbsolutePath());
-            resultIntent.putExtra("grid_size", selectedGridSize);
-            setResult(RESULT_OK, resultIntent); finish();
-        } catch (Exception e) { Log.e("Processing", "Save failed", e); }
-        finally { returnMat.release(); }
+        executor.execute(() -> {
+            // Warp again from the full photo, straight to the final size, so the recognizer gets
+            // the photo's real detail rather than an enlarged copy of the preview
+            int size = boardSizeFor(gridSize);
+            Mat board = warpBoard(originalFullMat, boardCorners, size);
+            Mat returnMat = applyFilters(board, size / (double) PREVIEW_SIZE);
+            board.release();
+
+            // Burn grid into final image as requested
+            drawGridOnMat(returnMat, gridSize, size / (double) PREVIEW_SIZE);
+            if (returnMat.channels() > 1) Imgproc.cvtColor(returnMat, returnMat, Imgproc.COLOR_RGB2GRAY);
+
+            // PNG is lossless, so no compression artifacts reach the recognizer
+            File file = new File(getExternalFilesDir(null), "preprocessed_sudoku.png");
+            MatOfInt params = new MatOfInt(Imgcodecs.IMWRITE_PNG_COMPRESSION, 1);
+            boolean saved = Imgcodecs.imwrite(file.getAbsolutePath(), returnMat, params);
+            params.release();
+            returnMat.release();
+
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (!saved) {
+                    Log.e("Processing", "Save failed");
+                    progressBar.setVisibility(View.GONE);
+                    btnFinish.setEnabled(true);
+                    Toast.makeText(this, "Could not save the board", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                Intent resultIntent = new Intent();
+                resultIntent.putExtra("image_path", file.getAbsolutePath());
+                resultIntent.putExtra("grid_size", gridSize);
+                setResult(RESULT_OK, resultIntent);
+                finish();
+            });
+        });
     }
 
     @Override
